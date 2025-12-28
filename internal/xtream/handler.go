@@ -758,13 +758,11 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 		}
 		
 		// Get genre category IDs from metadata
+		// Start with "Now Playing" and "Popular" so movies appear in both
 		categoryID := "999992" // Default to "Now Playing"
-		categoryIDs := []string{"999992"}
+		categoryIDs := []string{"999992", "999991"} // Now Playing + Popular
 		
 		if genres, ok := metadata["genres"].([]interface{}); ok && len(genres) > 0 {
-			categoryIDs = make([]string, 0, len(genres)+1)
-			categoryIDs = append(categoryIDs, "999992") // Always include default
-			
 			for i, g := range genres {
 				// Try object format first: {"id": 27, "name": "Horror"}
 				if gm, ok := g.(map[string]interface{}); ok {
@@ -782,6 +780,27 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 						if i == 0 {
 							categoryID = genreID
 						}
+					}
+				}
+			}
+		}
+		
+		// Also check genre_ids array (some TMDB responses use this format)
+		if genreIDs, ok := metadata["genre_ids"].([]interface{}); ok && len(genreIDs) > 0 {
+			for i, gid := range genreIDs {
+				var genreIDStr string
+				switch v := gid.(type) {
+				case float64:
+					genreIDStr = fmt.Sprintf("%.0f", v)
+				case int:
+					genreIDStr = fmt.Sprintf("%d", v)
+				case string:
+					genreIDStr = v
+				}
+				if genreIDStr != "" {
+					categoryIDs = append(categoryIDs, genreIDStr)
+					if i == 0 && categoryID == "999992" {
+						categoryID = genreIDStr
 					}
 				}
 			}
@@ -1159,13 +1178,12 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 		}
 		
 		// Get genre category IDs from metadata
+		// Start with "Popular", "Top Rated", "On The Air" so series appear in all these categories
 		categoryID := "88881" // Default to "Popular"
-		categoryIDs := []string{"88881"}
+		categoryIDs := []string{"88881", "88882", "88883"} // Popular + Top Rated + On The Air
 		genreStr := ""
 		
 		if genres, ok := metadata["genres"].([]interface{}); ok && len(genres) > 0 {
-			categoryIDs = make([]string, 0, len(genres)+1)
-			categoryIDs = append(categoryIDs, "88881") // Always include default
 			genreNames := make([]string, 0, len(genres))
 			
 			for i, g := range genres {
@@ -1193,6 +1211,27 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			genreStr = strings.Join(genreNames, ", ")
+		}
+		
+		// Also check genre_ids array (some TMDB responses use this format)
+		if genreIDs, ok := metadata["genre_ids"].([]interface{}); ok && len(genreIDs) > 0 {
+			for i, gid := range genreIDs {
+				var genreIDStr string
+				switch v := gid.(type) {
+				case float64:
+					genreIDStr = fmt.Sprintf("%.0f", v)
+				case int:
+					genreIDStr = fmt.Sprintf("%d", v)
+				case string:
+					genreIDStr = v
+				}
+				if genreIDStr != "" {
+					categoryIDs = append(categoryIDs, genreIDStr)
+					if i == 0 && categoryID == "88881" {
+						categoryID = genreIDStr
+					}
+				}
+			}
 		}
 		
 		// IMPORTANT: Use TMDB ID as series_id for playback
