@@ -3966,7 +3966,7 @@ export default function Settings() {
                         )}
                       </button>
                       <a
-                        href="https://github.com/Zerr0-C00L/StreamArr/releases"
+                        href="https://github.com/Zerr0-C00L/StreamArr_Pro/releases"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
@@ -4052,7 +4052,7 @@ export default function Settings() {
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   <a
-                    href="https://github.com/Zerr0-C00L/StreamArr"
+                    href="https://github.com/Zerr0-C00L/StreamArr_Pro"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 px-4 py-3 bg-[#2a2a2a] text-slate-300 rounded-lg hover:bg-gray-700 hover:text-white"
@@ -4060,7 +4060,7 @@ export default function Settings() {
                     <Github className="h-5 w-5" /> GitHub Repository
                   </a>
                   <a
-                    href="https://github.com/Zerr0-C00L/StreamArr/issues"
+                    href="https://github.com/Zerr0-C00L/StreamArr_Pro/issues"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 px-4 py-3 bg-[#2a2a2a] text-slate-300 rounded-lg hover:bg-gray-700 hover:text-white"
