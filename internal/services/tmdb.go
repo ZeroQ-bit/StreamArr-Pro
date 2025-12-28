@@ -885,7 +885,7 @@ type DiscoverCollectionsParams struct {
 // and extracting their collection info (like tmdb-collections approach)
 func (c *TMDBClient) DiscoverCollections(ctx context.Context, params DiscoverCollectionsParams, maxPages int) ([]*models.Collection, error) {
 	if maxPages <= 0 {
-		maxPages = 5
+		maxPages = 10
 	}
 	if params.MinVoteCount <= 0 {
 		params.MinVoteCount = 100
@@ -894,9 +894,9 @@ func (c *TMDBClient) DiscoverCollections(ctx context.Context, params DiscoverCol
 		params.SortBy = "popularity.desc"
 	}
 
-	collectionMap := make(map[int]*models.Collection)
+	// First, collect all movie IDs from discover pages
+	movieIDs := make(map[int]bool)
 	
-	// Fetch movies from multiple pages
 	for page := 1; page <= maxPages; page++ {
 		endpoint := fmt.Sprintf("%s/discover/movie", tmdbBaseURL)
 		urlParams := url.Values{}
@@ -926,56 +926,30 @@ func (c *TMDBClient) DiscoverCollections(ctx context.Context, params DiscoverCol
 
 		data, err := c.makeRequest(ctx, endpoint, urlParams)
 		if err != nil {
-			continue // Skip failed pages
+			continue
 		}
 
 		var result struct {
-			Results    []tmdbMovie `json:"results"`
-			TotalPages int         `json:"total_pages"`
+			Results    []struct {
+				ID int `json:"id"`
+			} `json:"results"`
+			TotalPages int `json:"total_pages"`
 		}
 		if err := json.Unmarshal(data, &result); err != nil {
 			continue
 		}
 
-		// For each movie, fetch full details to get collection info
 		for _, movie := range result.Results {
-			if movie.BelongsToCollection != nil {
-				// Already have collection info from discover results
-				if _, exists := collectionMap[movie.BelongsToCollection.ID]; !exists {
-					collectionMap[movie.BelongsToCollection.ID] = &models.Collection{
-						TMDBID:       movie.BelongsToCollection.ID,
-						Name:         movie.BelongsToCollection.Name,
-						PosterPath:   movie.BelongsToCollection.PosterPath,
-						BackdropPath: movie.BelongsToCollection.BackdropPath,
-					}
-				}
-			} else {
-				// Need to fetch full movie details for collection info
-				movieDetail, collection, err := c.GetMovieWithCollection(ctx, movie.ID)
-				if err == nil && collection != nil && movieDetail != nil {
-					if _, exists := collectionMap[collection.TMDBID]; !exists {
-						collectionMap[collection.TMDBID] = collection
-					}
-				}
-			}
+			movieIDs[movie.ID] = true
 		}
 
-		// Break early if we've hit the last page
 		if page >= result.TotalPages {
 			break
 		}
-
-		// Rate limiting - small delay between pages
-		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Convert map to slice
-	collections := make([]*models.Collection, 0, len(collectionMap))
-	for _, c := range collectionMap {
-		collections = append(collections, c)
-	}
-
-	return collections, nil
+	// Now extract collections from these movies in parallel
+	return c.getCollectionsFromMovieIDs(ctx, movieIDs)
 }
 
 // SearchPerson searches for a person (actor/director) and returns their movie collections
@@ -1146,7 +1120,7 @@ func (c *TMDBClient) getCollectionsFromMovieIDs(ctx context.Context, movieIDs ma
 	}
 	
 	results := make(chan result, len(movieIDs))
-	semaphore := make(chan struct{}, 10) // Limit concurrent requests
+	semaphore := make(chan struct{}, 20) // Increased concurrent requests
 
 	for movieID := range movieIDs {
 		go func(id int) {

@@ -3166,8 +3166,8 @@ func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 		switch catalog {
 		case "popular":
 			params.SortBy = "popularity.desc"
-			params.MinVoteCount = 100
-			params.MinVoteAvg = 6.0
+			params.MinVoteCount = 50
+			params.MinVoteAvg = 5.0
 			if genreID > 0 {
 				params.Genre = &genreID
 			}
@@ -3175,41 +3175,41 @@ func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 			params.SortBy = "vote_average.desc"
 			params.MinVoteAvg = 7.0
 			if genreID > 0 {
-				params.MinVoteCount = 50
+				params.MinVoteCount = 30
 				params.Genre = &genreID
 			} else {
-				params.MinVoteCount = 3000 // Higher threshold for overall top rated
+				params.MinVoteCount = 1000 // Lower threshold for more results
 			}
 		case "newReleases":
 			params.SortBy = "release_date.desc"
 			oneYearAgo := time.Now().AddDate(-1, 0, 0).Format("2006-01-02")
 			params.ReleasedAfter = oneYearAgo
-			params.MinVoteCount = 20
-			params.MinVoteAvg = 5.0
+			params.MinVoteCount = 10
+			params.MinVoteAvg = 4.0
 			if genreID > 0 {
 				params.Genre = &genreID
 			}
 		case "byGenre":
 			params.SortBy = "popularity.desc"
-			params.MinVoteCount = 100
+			params.MinVoteCount = 50
 			if genreID > 0 {
 				params.Genre = &genreID
 			}
 		case "byCountry":
 			params.SortBy = "vote_count.desc"
-			params.MinVoteCount = 30
+			params.MinVoteCount = 20
 			if country != "" {
 				params.Country = country
 			}
 		default:
 			params.SortBy = "popularity.desc"
-			params.MinVoteCount = 100
+			params.MinVoteCount = 50
 		}
 		
-		// Calculate pages to fetch based on requested page
-		maxPages := 3 + (page-1)*2 // Fetch more pages for later pagination
-		if maxPages > 10 {
-			maxPages = 10
+		// Fetch more pages to get more collections (each page = 20 movies, ~30-50% have collections)
+		maxPages := 10 + (page-1)*5
+		if maxPages > 25 {
+			maxPages = 25
 		}
 		
 		allCollections, err = h.tmdbClient.DiscoverCollections(ctx, params, maxPages)
