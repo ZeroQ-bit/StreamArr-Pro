@@ -647,12 +647,53 @@ func (h *XtreamHandler) getVODCategories(w http.ResponseWriter, r *http.Request)
 		{"category_id": "37", "category_name": "Western", "parent_id": 0},
 	}
 	
+	// Add collections as categories (using "col_" prefix to distinguish from genres)
+	// Only include collections that have at least 1 movie in the library
+	collectionsQuery := `
+		SELECT c.tmdb_id, c.name, COUNT(m.id) as movie_count
+		FROM collections c
+		INNER JOIN library_movies m ON m.collection_id = c.id
+		WHERE m.monitored = true
+		GROUP BY c.id, c.tmdb_id, c.name
+		HAVING COUNT(m.id) > 0
+		ORDER BY c.name ASC
+	`
+	
+	rows, err := h.db.Query(collectionsQuery)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var tmdbID int64
+			var name string
+			var movieCount int
+			if err := rows.Scan(&tmdbID, &name, &movieCount); err == nil {
+				// Use "col_" prefix + TMDB ID for collection categories
+				categories = append(categories, map[string]interface{}{
+					"category_id":   fmt.Sprintf("col_%d", tmdbID),
+					"category_name": fmt.Sprintf("📁 %s (%d)", name, movieCount),
+					"parent_id":     0,
+				})
+			}
+		}
+	}
+	
 	json.NewEncoder(w).Encode(categories)
 }
 
 func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 	// Get category_id filter from query params
 	categoryFilter := r.URL.Query().Get("category_id")
+	
+	// Check if filtering by collection (col_XXXXX format)
+	var collectionTmdbID int64
+	isCollectionFilter := false
+	if strings.HasPrefix(categoryFilter, "col_") {
+		collectionIDStr := strings.TrimPrefix(categoryFilter, "col_")
+		if cid, err := strconv.ParseInt(collectionIDStr, 10, 64); err == nil {
+			collectionTmdbID = cid
+			isCollectionFilter = true
+		}
+	}
 	
 	// Check if we should hide unavailable content
 	hideUnavailable := false
@@ -683,25 +724,56 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Build query with filters
-	query := `
-		SELECT id, tmdb_id, title, year, metadata, COALESCE(EXTRACT(EPOCH FROM added_at), 0) as added_ts
-		FROM library_movies
-		WHERE monitored = true
-	`
+	var query string
+	var args []interface{}
 	
-	// Apply hideUnavailable filter
-	if hideUnavailable {
-		query += ` AND (available = true OR last_checked IS NULL)`
+	if isCollectionFilter {
+		// Query movies by collection TMDB ID
+		query = `
+			SELECT m.id, m.tmdb_id, m.title, m.year, m.metadata, COALESCE(EXTRACT(EPOCH FROM m.added_at), 0) as added_ts,
+			       c.tmdb_id as collection_tmdb_id
+			FROM library_movies m
+			INNER JOIN collections c ON m.collection_id = c.id
+			WHERE m.monitored = true AND c.tmdb_id = $1
+		`
+		args = append(args, collectionTmdbID)
+		
+		if hideUnavailable {
+			query += ` AND (m.available = true OR m.last_checked IS NULL)`
+		}
+		if onlyCached {
+			query += ` AND EXISTS (SELECT 1 FROM media_streams ms WHERE ms.movie_id = m.id)`
+		}
+		query += ` ORDER BY m.year ASC, m.title ASC` // Order by year for collections (chronological)
+	} else {
+		query = `
+			SELECT m.id, m.tmdb_id, m.title, m.year, m.metadata, COALESCE(EXTRACT(EPOCH FROM m.added_at), 0) as added_ts,
+			       COALESCE(c.tmdb_id, 0) as collection_tmdb_id
+			FROM library_movies m
+			LEFT JOIN collections c ON m.collection_id = c.id
+			WHERE m.monitored = true
+		`
+		
+		// Apply hideUnavailable filter
+		if hideUnavailable {
+			query += ` AND (m.available = true OR m.last_checked IS NULL)`
+		}
+		
+		// Apply "Only Cached Streams" filter
+		if onlyCached {
+			query += ` AND EXISTS (SELECT 1 FROM media_streams ms WHERE ms.movie_id = m.id)`
+		}
+		
+		query += ` ORDER BY m.id DESC`
 	}
 	
-	// Apply "Only Cached Streams" filter
-	if onlyCached {
-		query += ` AND EXISTS (SELECT 1 FROM media_streams ms WHERE ms.movie_id = id)`
+	var rows *sql.Rows
+	var err error
+	if len(args) > 0 {
+		rows, err = h.db.Query(query, args...)
+	} else {
+		rows, err = h.db.Query(query)
 	}
-	
-	query += ` ORDER BY id DESC`
-	
-	rows, err := h.db.Query(query)
 	if err != nil {
 		log.Printf("Error querying movies: %v", err)
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
@@ -718,8 +790,9 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 		var year sql.NullInt64
 		var metadataJSON []byte
 		var addedTs float64
+		var collectionTmdbIDVal int64
 		
-		if err := rows.Scan(&id, &tmdbID, &title, &year, &metadataJSON, &addedTs); err != nil {
+		if err := rows.Scan(&id, &tmdbID, &title, &year, &metadataJSON, &addedTs, &collectionTmdbIDVal); err != nil {
 			continue
 		}
 		
@@ -806,6 +879,11 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		
+		// Add collection category if movie belongs to a collection
+		if collectionTmdbIDVal > 0 {
+			categoryIDs = append(categoryIDs, fmt.Sprintf("col_%d", collectionTmdbIDVal))
+		}
+		
 		// Convert timestamp to int
 		addedInt := int64(addedTs)
 		if addedInt == 0 {
@@ -836,8 +914,8 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 			"group":               "StreamArr",
 		}
 		
-		// Filter by category if specified
-		if categoryFilter != "" {
+		// Filter by category if specified (skip for collection filter since SQL already filtered)
+		if categoryFilter != "" && !isCollectionFilter {
 			found := false
 			for _, cid := range categoryIDs {
 				if cid == categoryFilter {
