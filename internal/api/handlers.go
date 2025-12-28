@@ -2969,6 +2969,7 @@ func (h *Handler) GetCollectionMovies(w http.ResponseWriter, r *http.Request) {
 }
 
 // SearchCollections handles GET /api/search/collections - search TMDB for collections
+// Now uses enhanced multi-strategy search (collection + movie + person search)
 func (h *Handler) SearchCollections(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -2978,7 +2979,20 @@ func (h *Handler) SearchCollections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	collections, err := h.tmdbClient.SearchCollections(ctx, query)
+	// Use enhanced search if "enhanced" param is set, otherwise use simple search
+	enhanced := r.URL.Query().Get("enhanced")
+	
+	var collections []*models.Collection
+	var err error
+	
+	if enhanced == "true" || enhanced == "1" {
+		// Multi-strategy search: collection name + movie name + person (actor/director)
+		collections, err = h.tmdbClient.EnhancedSearchCollections(ctx, query)
+	} else {
+		// Simple collection name search
+		collections, err = h.tmdbClient.SearchCollections(ctx, query)
+	}
+	
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to search collections")
 		return
@@ -3102,7 +3116,8 @@ func (h *Handler) GetPopularCollections(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, http.StatusOK, allCollections)
 }
 
-// BrowseCollections handles GET /api/discover/collections/browse - browse all TMDB collections with pagination
+// BrowseCollections handles GET /api/discover/collections/browse - browse TMDB collections with discovery
+// Uses the tmdb-collections approach: discover movies via filters and extract their collections
 func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	
@@ -3117,90 +3132,133 @@ func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 	// Get search query if provided
 	query := r.URL.Query().Get("query")
 	
-	// Expanded list of collection search terms for more variety
-	allSearchTerms := []string{
-		// Superhero/Comic
-		"Marvel", "Avengers", "Iron Man", "Captain America", "Thor", "Hulk", "Guardians of the Galaxy",
-		"Spider-Man", "X-Men", "Deadpool", "Batman", "Superman", "Justice League", "Wonder Woman",
-		"Aquaman", "DC Extended Universe", "The Dark Knight",
-		// Sci-Fi/Fantasy
-		"Star Wars", "Star Trek", "The Matrix", "Terminator", "Alien", "Predator", "Planet of the Apes",
-		"Jurassic", "Back to the Future", "Transformers", "Pacific Rim", "Godzilla", "King Kong",
-		"Blade Runner", "Dune", "Avatar",
-		// Action/Adventure
-		"James Bond", "Mission Impossible", "Fast Furious", "John Wick", "Die Hard", "Rambo",
-		"Indiana Jones", "Pirates of the Caribbean", "The Expendables", "Mad Max", "Kingsman",
-		"Jack Ryan", "Bourne", "Tomb Raider", "National Treasure",
-		// Fantasy
-		"Lord of the Rings", "Hobbit", "Harry Potter", "Fantastic Beasts", "Narnia", "The Hunger Games",
-		"Twilight", "Maze Runner", "Divergent", "Percy Jackson",
-		// Animation
-		"Toy Story", "Shrek", "Ice Age", "Madagascar", "Kung Fu Panda", "How to Train Your Dragon",
-		"Despicable Me", "Minions", "Finding Nemo", "Cars", "Monsters Inc", "The Incredibles",
-		"Frozen", "Moana", "Wreck-It Ralph", "Big Hero", "Zootopia",
-		// Horror
-		"Conjuring", "Insidious", "Paranormal Activity", "Saw", "Halloween", "Friday the 13th",
-		"A Nightmare on Elm Street", "Scream", "The Purge", "Final Destination", "Annabelle",
-		// Comedy
-		"Hangover", "American Pie", "Rush Hour", "Bad Boys", "Men in Black", "Ghostbusters",
-		"Night at the Museum", "Ocean's", "Austin Powers", "Ace Ventura",
-		// Drama/Crime
-		"Godfather", "Rocky", "Creed", "Ocean", "Now You See Me", "Taken",
+	// Get catalog type for filtering
+	catalog := r.URL.Query().Get("catalog") // popular, topRated, newReleases, byGenre, byCountry
+	if catalog == "" {
+		catalog = "popular"
 	}
 	
-	var searchTerms []string
-	if query != "" {
-		// If user provides a search query, use that
-		searchTerms = []string{query}
-	} else {
-		// Calculate which terms to use based on page (5 terms per page for variety)
-		termsPerPage := 5
-		startIdx := (page - 1) * termsPerPage
-		endIdx := startIdx + termsPerPage
-		if startIdx >= len(allSearchTerms) {
-			startIdx = 0
-			endIdx = termsPerPage
+	// Get optional genre filter
+	genreID := 0
+	if g := r.URL.Query().Get("genre"); g != "" {
+		if parsed, err := strconv.Atoi(g); err == nil {
+			genreID = parsed
 		}
-		if endIdx > len(allSearchTerms) {
-			endIdx = len(allSearchTerms)
-		}
-		searchTerms = allSearchTerms[startIdx:endIdx]
 	}
+	
+	// Get optional country filter
+	country := r.URL.Query().Get("country") // ISO 3166-1 code like "US", "GB", "FR"
 	
 	var allCollections []*models.Collection
-	seen := make(map[int]bool)
+	var err error
 	
-	for _, term := range searchTerms {
-		collections, err := h.tmdbClient.SearchCollections(ctx, term)
+	if query != "" {
+		// If search query provided, use enhanced search
+		allCollections, err = h.tmdbClient.EnhancedSearchCollections(ctx, query)
 		if err != nil {
-			continue
+			respondError(w, http.StatusInternalServerError, "failed to search collections")
+			return
 		}
-		for _, c := range collections {
-			if !seen[c.TMDBID] {
-				seen[c.TMDBID] = true
-				allCollections = append(allCollections, c)
+	} else {
+		// Use discover-based collection fetching
+		params := services.DiscoverCollectionsParams{}
+		
+		switch catalog {
+		case "popular":
+			params.SortBy = "popularity.desc"
+			params.MinVoteCount = 100
+			params.MinVoteAvg = 6.0
+			if genreID > 0 {
+				params.Genre = &genreID
 			}
+		case "topRated":
+			params.SortBy = "vote_average.desc"
+			params.MinVoteAvg = 7.0
+			if genreID > 0 {
+				params.MinVoteCount = 50
+				params.Genre = &genreID
+			} else {
+				params.MinVoteCount = 3000 // Higher threshold for overall top rated
+			}
+		case "newReleases":
+			params.SortBy = "release_date.desc"
+			oneYearAgo := time.Now().AddDate(-1, 0, 0).Format("2006-01-02")
+			params.ReleasedAfter = oneYearAgo
+			params.MinVoteCount = 20
+			params.MinVoteAvg = 5.0
+			if genreID > 0 {
+				params.Genre = &genreID
+			}
+		case "byGenre":
+			params.SortBy = "popularity.desc"
+			params.MinVoteCount = 100
+			if genreID > 0 {
+				params.Genre = &genreID
+			}
+		case "byCountry":
+			params.SortBy = "vote_count.desc"
+			params.MinVoteCount = 30
+			if country != "" {
+				params.Country = country
+			}
+		default:
+			params.SortBy = "popularity.desc"
+			params.MinVoteCount = 100
+		}
+		
+		// Calculate pages to fetch based on requested page
+		maxPages := 3 + (page-1)*2 // Fetch more pages for later pagination
+		if maxPages > 10 {
+			maxPages = 10
+		}
+		
+		allCollections, err = h.tmdbClient.DiscoverCollections(ctx, params, maxPages)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to discover collections")
+			return
 		}
 	}
 	
-	// Calculate pagination
-	totalCollections := len(allCollections)
+	// Deduplicate and sort (already handled in DiscoverCollections, but ensure uniqueness)
+	seen := make(map[int]bool)
+	uniqueCollections := make([]*models.Collection, 0, len(allCollections))
+	for _, c := range allCollections {
+		if !seen[c.TMDBID] {
+			seen[c.TMDBID] = true
+			uniqueCollections = append(uniqueCollections, c)
+		}
+	}
+	
+	// Pagination
+	totalCollections := len(uniqueCollections)
 	itemsPerPage := 50
-	totalPages := (len(allSearchTerms) + 4) / 5 // 5 terms per page
-	if query != "" {
+	startIdx := (page - 1) * itemsPerPage
+	endIdx := startIdx + itemsPerPage
+	
+	if startIdx >= totalCollections {
+		startIdx = 0
+		endIdx = itemsPerPage
+	}
+	if endIdx > totalCollections {
+		endIdx = totalCollections
+	}
+	
+	paginatedCollections := uniqueCollections
+	if startIdx < len(uniqueCollections) {
+		paginatedCollections = uniqueCollections[startIdx:endIdx]
+	}
+	
+	totalPages := (totalCollections + itemsPerPage - 1) / itemsPerPage
+	if totalPages < 1 {
 		totalPages = 1
 	}
 	
-	// Limit to 50 items per page
-	if totalCollections > itemsPerPage {
-		allCollections = allCollections[:itemsPerPage]
-	}
-	
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"collections": allCollections,
+		"collections": paginatedCollections,
 		"page":        page,
 		"totalPages":  totalPages,
 		"total":       totalCollections,
+		"catalog":     catalog,
 	})
 }
 

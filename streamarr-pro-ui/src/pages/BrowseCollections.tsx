@@ -4,9 +4,53 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { streamarrApi, tmdbImageUrl } from '../services/api';
 import { 
   Layers, ChevronLeft, ChevronRight, Plus, Check, Loader2, 
-  Search as SearchIcon, ArrowLeft, CheckCircle, AlertCircle, X, SlidersHorizontal
+  Search as SearchIcon, ArrowLeft, CheckCircle, AlertCircle, X, SlidersHorizontal,
+  TrendingUp, Star, Calendar, Globe, Film
 } from 'lucide-react';
 import type { Collection } from '../types';
+
+// Genre options for filtering
+const GENRE_OPTIONS = [
+  { id: 28, name: 'Action' },
+  { id: 12, name: 'Adventure' },
+  { id: 16, name: 'Animation' },
+  { id: 35, name: 'Comedy' },
+  { id: 80, name: 'Crime' },
+  { id: 18, name: 'Drama' },
+  { id: 14, name: 'Fantasy' },
+  { id: 27, name: 'Horror' },
+  { id: 9648, name: 'Mystery' },
+  { id: 10749, name: 'Romance' },
+  { id: 878, name: 'Science Fiction' },
+  { id: 53, name: 'Thriller' },
+  { id: 10752, name: 'War' },
+  { id: 37, name: 'Western' },
+];
+
+// Country options for filtering
+const COUNTRY_OPTIONS = [
+  { code: 'US', name: 'United States' },
+  { code: 'GB', name: 'United Kingdom' },
+  { code: 'FR', name: 'France' },
+  { code: 'DE', name: 'Germany' },
+  { code: 'JP', name: 'Japan' },
+  { code: 'KR', name: 'South Korea' },
+  { code: 'IN', name: 'India' },
+  { code: 'IT', name: 'Italy' },
+  { code: 'ES', name: 'Spain' },
+  { code: 'CA', name: 'Canada' },
+  { code: 'AU', name: 'Australia' },
+  { code: 'CN', name: 'China' },
+];
+
+// Catalog types
+const CATALOG_OPTIONS = [
+  { id: 'popular', name: 'Popular', icon: TrendingUp, description: 'Most popular collections' },
+  { id: 'topRated', name: 'Top Rated', icon: Star, description: 'Highest rated collections' },
+  { id: 'newReleases', name: 'New Releases', icon: Calendar, description: 'Collections with recent movies' },
+  { id: 'byGenre', name: 'By Genre', icon: Film, description: 'Filter by genre' },
+  { id: 'byCountry', name: 'By Country', icon: Globe, description: 'Filter by country' },
+];
 
 export default function BrowseCollections() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -14,16 +58,20 @@ export default function BrowseCollections() {
   
   const page = parseInt(searchParams.get('page') || '1');
   const searchQuery = searchParams.get('query') || '';
+  const catalog = searchParams.get('catalog') || 'popular';
+  const genre = searchParams.get('genre') ? parseInt(searchParams.get('genre')!) : undefined;
+  const country = searchParams.get('country') || undefined;
+  
   const [searchInput, setSearchInput] = useState(searchQuery);
   const [addingCollectionId, setAddingCollectionId] = useState<number | null>(null);
   const [newlyAddedIds, setNewlyAddedIds] = useState<Set<number>>(new Set());
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<'name' | 'name-desc' | 'recent' | 'in-library'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'name-desc' | 'recent' | 'in-library'>('recent');
 
-  // Fetch collections with pagination
+  // Fetch collections with pagination and filters
   const { data: collectionsData, isLoading } = useQuery({
-    queryKey: ['browse-collections', page, searchQuery],
-    queryFn: () => streamarrApi.browseCollections(page, searchQuery || undefined).then(res => res.data),
+    queryKey: ['browse-collections', page, searchQuery, catalog, genre, country],
+    queryFn: () => streamarrApi.browseCollections(page, searchQuery || undefined, catalog, genre, country).then(res => res.data),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -77,14 +125,42 @@ export default function BrowseCollections() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setSearchParams({ page: '1', query: searchInput });
+    const params: Record<string, string> = { page: '1' };
+    if (searchInput) params.query = searchInput;
+    if (catalog) params.catalog = catalog;
+    if (genre) params.genre = String(genre);
+    if (country) params.country = country;
+    setSearchParams(params);
   };
 
   const handlePageChange = (newPage: number) => {
     const params: Record<string, string> = { page: String(newPage) };
     if (searchQuery) params.query = searchQuery;
+    if (catalog) params.catalog = catalog;
+    if (genre) params.genre = String(genre);
+    if (country) params.country = country;
     setSearchParams(params);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCatalogChange = (newCatalog: string) => {
+    const params: Record<string, string> = { page: '1', catalog: newCatalog };
+    // Reset genre/country when switching catalogs (unless relevant)
+    if (newCatalog === 'byGenre' && genre) params.genre = String(genre);
+    if (newCatalog === 'byCountry' && country) params.country = country;
+    setSearchParams(params);
+  };
+
+  const handleGenreChange = (newGenre: number | undefined) => {
+    const params: Record<string, string> = { page: '1', catalog: 'byGenre' };
+    if (newGenre) params.genre = String(newGenre);
+    setSearchParams(params);
+  };
+
+  const handleCountryChange = (newCountry: string | undefined) => {
+    const params: Record<string, string> = { page: '1', catalog: 'byCountry' };
+    if (newCountry) params.country = newCountry;
+    setSearchParams(params);
   };
 
   const collections = collectionsData?.collections || [];
@@ -135,7 +211,7 @@ export default function BrowseCollections() {
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search collections..."
+              placeholder="Search by collection, movie, or actor/director name..."
               className="w-full pl-12 pr-4 py-3 bg-slate-800 border border-slate-700 rounded-lg 
                        text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500
                        transition-colors"
@@ -149,6 +225,101 @@ export default function BrowseCollections() {
             </button>
           </div>
         </form>
+
+        {/* Catalog Tabs */}
+        <div className="flex flex-wrap gap-2 mt-6">
+          {CATALOG_OPTIONS.map((cat) => {
+            const Icon = cat.icon;
+            const isActive = catalog === cat.id;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => handleCatalogChange(cat.id)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all
+                  ${isActive 
+                    ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30' 
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'}`}
+                title={cat.description}
+              >
+                <Icon className="w-4 h-4" />
+                {cat.name}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Genre Filter (shown when byGenre catalog is selected) */}
+        {catalog === 'byGenre' && (
+          <div className="mt-4">
+            <label className="text-sm text-slate-400 mb-2 block">Select Genre:</label>
+            <div className="flex flex-wrap gap-2">
+              {GENRE_OPTIONS.map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => handleGenreChange(g.id)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all
+                    ${genre === g.id 
+                      ? 'bg-cyan-600 text-white' 
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  {g.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Country Filter (shown when byCountry catalog is selected) */}
+        {catalog === 'byCountry' && (
+          <div className="mt-4">
+            <label className="text-sm text-slate-400 mb-2 block">Select Country:</label>
+            <div className="flex flex-wrap gap-2">
+              {COUNTRY_OPTIONS.map((c) => (
+                <button
+                  key={c.code}
+                  onClick={() => handleCountryChange(c.code)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all
+                    ${country === c.code 
+                      ? 'bg-cyan-600 text-white' 
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Active Filters Display */}
+        {(searchQuery || genre || country) && (
+          <div className="flex items-center gap-2 mt-4 text-sm">
+            <span className="text-slate-400">Active filters:</span>
+            {searchQuery && (
+              <span className="flex items-center gap-1 bg-slate-700 px-2 py-1 rounded-full">
+                Search: "{searchQuery}"
+                <button onClick={() => { setSearchInput(''); setSearchParams({ page: '1', catalog }); }} className="hover:text-red-400">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {genre && (
+              <span className="flex items-center gap-1 bg-slate-700 px-2 py-1 rounded-full">
+                Genre: {GENRE_OPTIONS.find(g => g.id === genre)?.name}
+                <button onClick={() => handleGenreChange(undefined)} className="hover:text-red-400">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {country && (
+              <span className="flex items-center gap-1 bg-slate-700 px-2 py-1 rounded-full">
+                Country: {COUNTRY_OPTIONS.find(c => c.code === country)?.name}
+                <button onClick={() => handleCountryChange(undefined)} className="hover:text-red-400">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Sort Dropdown */}
         <div className="flex items-center gap-3 mt-4">

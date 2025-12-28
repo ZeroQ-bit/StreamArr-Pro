@@ -869,6 +869,317 @@ func (c *TMDBClient) GetPopular(ctx context.Context, mediaType string) ([]Trendi
 	return items, nil
 }
 
+// DiscoverCollectionsParams holds parameters for collection discovery
+type DiscoverCollectionsParams struct {
+	SortBy       string  // e.g., "popularity.desc", "vote_average.desc", "release_date.desc"
+	Genre        *int    // Genre ID filter
+	MinVoteCount int     // Minimum vote count
+	MinVoteAvg   float64 // Minimum vote average
+	Country      string  // Origin country ISO code
+	Company      string  // Production company ID(s)
+	Year         *int    // Release year filter
+	ReleasedAfter string // Movies released after this date (YYYY-MM-DD)
+}
+
+// DiscoverCollections discovers collections by finding movies via /discover/movie
+// and extracting their collection info (like tmdb-collections approach)
+func (c *TMDBClient) DiscoverCollections(ctx context.Context, params DiscoverCollectionsParams, maxPages int) ([]*models.Collection, error) {
+	if maxPages <= 0 {
+		maxPages = 5
+	}
+	if params.MinVoteCount <= 0 {
+		params.MinVoteCount = 100
+	}
+	if params.SortBy == "" {
+		params.SortBy = "popularity.desc"
+	}
+
+	collectionMap := make(map[int]*models.Collection)
+	
+	// Fetch movies from multiple pages
+	for page := 1; page <= maxPages; page++ {
+		endpoint := fmt.Sprintf("%s/discover/movie", tmdbBaseURL)
+		urlParams := url.Values{}
+		urlParams.Set("api_key", c.apiKey)
+		urlParams.Set("page", fmt.Sprintf("%d", page))
+		urlParams.Set("sort_by", params.SortBy)
+		urlParams.Set("vote_count.gte", fmt.Sprintf("%d", params.MinVoteCount))
+		
+		if params.MinVoteAvg > 0 {
+			urlParams.Set("vote_average.gte", fmt.Sprintf("%.1f", params.MinVoteAvg))
+		}
+		if params.Genre != nil {
+			urlParams.Set("with_genres", fmt.Sprintf("%d", *params.Genre))
+		}
+		if params.Country != "" {
+			urlParams.Set("with_origin_country", params.Country)
+		}
+		if params.Company != "" {
+			urlParams.Set("with_companies", params.Company)
+		}
+		if params.Year != nil {
+			urlParams.Set("year", fmt.Sprintf("%d", *params.Year))
+		}
+		if params.ReleasedAfter != "" {
+			urlParams.Set("primary_release_date.gte", params.ReleasedAfter)
+		}
+
+		data, err := c.makeRequest(ctx, endpoint, urlParams)
+		if err != nil {
+			continue // Skip failed pages
+		}
+
+		var result struct {
+			Results    []tmdbMovie `json:"results"`
+			TotalPages int         `json:"total_pages"`
+		}
+		if err := json.Unmarshal(data, &result); err != nil {
+			continue
+		}
+
+		// For each movie, fetch full details to get collection info
+		for _, movie := range result.Results {
+			if movie.BelongsToCollection != nil {
+				// Already have collection info from discover results
+				if _, exists := collectionMap[movie.BelongsToCollection.ID]; !exists {
+					collectionMap[movie.BelongsToCollection.ID] = &models.Collection{
+						TMDBID:       movie.BelongsToCollection.ID,
+						Name:         movie.BelongsToCollection.Name,
+						PosterPath:   movie.BelongsToCollection.PosterPath,
+						BackdropPath: movie.BelongsToCollection.BackdropPath,
+					}
+				}
+			} else {
+				// Need to fetch full movie details for collection info
+				movieDetail, collection, err := c.GetMovieWithCollection(ctx, movie.ID)
+				if err == nil && collection != nil && movieDetail != nil {
+					if _, exists := collectionMap[collection.TMDBID]; !exists {
+						collectionMap[collection.TMDBID] = collection
+					}
+				}
+			}
+		}
+
+		// Break early if we've hit the last page
+		if page >= result.TotalPages {
+			break
+		}
+
+		// Rate limiting - small delay between pages
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Convert map to slice
+	collections := make([]*models.Collection, 0, len(collectionMap))
+	for _, c := range collectionMap {
+		collections = append(collections, c)
+	}
+
+	return collections, nil
+}
+
+// SearchPerson searches for a person (actor/director) and returns their movie collections
+func (c *TMDBClient) SearchPerson(ctx context.Context, query string) ([]*models.Collection, error) {
+	// First, search for the person
+	endpoint := fmt.Sprintf("%s/search/person", tmdbBaseURL)
+	params := url.Values{}
+	params.Set("api_key", c.apiKey)
+	params.Set("query", query)
+
+	data, err := c.makeRequest(ctx, endpoint, params)
+	if err != nil {
+		return nil, err
+	}
+
+	var personResult struct {
+		Results []struct {
+			ID         int     `json:"id"`
+			Name       string  `json:"name"`
+			Popularity float64 `json:"popularity"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(data, &personResult); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal person search: %w", err)
+	}
+
+	if len(personResult.Results) == 0 {
+		return []*models.Collection{}, nil
+	}
+
+	// Get the most popular person match
+	personID := personResult.Results[0].ID
+	for _, p := range personResult.Results {
+		if p.Popularity > personResult.Results[0].Popularity {
+			personID = p.ID
+		}
+	}
+
+	// Get their movie credits
+	creditsEndpoint := fmt.Sprintf("%s/person/%d/movie_credits", tmdbBaseURL, personID)
+	creditsParams := url.Values{}
+	creditsParams.Set("api_key", c.apiKey)
+
+	creditsData, err := c.makeRequest(ctx, creditsEndpoint, creditsParams)
+	if err != nil {
+		return nil, err
+	}
+
+	var credits struct {
+		Cast []struct {
+			ID int `json:"id"`
+		} `json:"cast"`
+		Crew []struct {
+			ID         int    `json:"id"`
+			Department string `json:"department"`
+		} `json:"crew"`
+	}
+	if err := json.Unmarshal(creditsData, &credits); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal credits: %w", err)
+	}
+
+	// Collect unique movie IDs (cast + directing/writing crew)
+	movieIDs := make(map[int]bool)
+	for _, c := range credits.Cast {
+		movieIDs[c.ID] = true
+	}
+	for _, c := range credits.Crew {
+		if c.Department == "Directing" || c.Department == "Writing" {
+			movieIDs[c.ID] = true
+		}
+	}
+
+	// Extract collections from these movies
+	return c.getCollectionsFromMovieIDs(ctx, movieIDs)
+}
+
+// SearchMoviesForCollections searches for movies by query and extracts their collections
+func (c *TMDBClient) SearchMoviesForCollections(ctx context.Context, query string, maxPages int) ([]*models.Collection, error) {
+	if maxPages <= 0 {
+		maxPages = 3
+	}
+
+	movieIDs := make(map[int]bool)
+
+	for page := 1; page <= maxPages; page++ {
+		endpoint := fmt.Sprintf("%s/search/movie", tmdbBaseURL)
+		params := url.Values{}
+		params.Set("api_key", c.apiKey)
+		params.Set("query", query)
+		params.Set("page", fmt.Sprintf("%d", page))
+
+		data, err := c.makeRequest(ctx, endpoint, params)
+		if err != nil {
+			continue
+		}
+
+		var result struct {
+			Results    []tmdbMovie `json:"results"`
+			TotalPages int         `json:"total_pages"`
+		}
+		if err := json.Unmarshal(data, &result); err != nil {
+			continue
+		}
+
+		for _, movie := range result.Results {
+			movieIDs[movie.ID] = true
+		}
+
+		if page >= result.TotalPages || len(movieIDs) >= 50 {
+			break
+		}
+	}
+
+	return c.getCollectionsFromMovieIDs(ctx, movieIDs)
+}
+
+// EnhancedSearchCollections performs a multi-strategy search for collections
+// (direct collection search + movie search + person search)
+func (c *TMDBClient) EnhancedSearchCollections(ctx context.Context, query string) ([]*models.Collection, error) {
+	collectionMap := make(map[int]*models.Collection)
+
+	// Strategy 1: Direct collection search
+	directCollections, err := c.SearchCollections(ctx, query)
+	if err == nil {
+		for _, col := range directCollections {
+			collectionMap[col.TMDBID] = col
+		}
+	}
+
+	// Strategy 2: Search by person (actor/director)
+	personCollections, err := c.SearchPerson(ctx, query)
+	if err == nil {
+		for _, col := range personCollections {
+			if _, exists := collectionMap[col.TMDBID]; !exists {
+				collectionMap[col.TMDBID] = col
+			}
+		}
+	}
+
+	// Strategy 3: Search movies and extract collections (if we don't have enough results)
+	if len(collectionMap) < 10 {
+		movieCollections, err := c.SearchMoviesForCollections(ctx, query, 2)
+		if err == nil {
+			for _, col := range movieCollections {
+				if _, exists := collectionMap[col.TMDBID]; !exists {
+					collectionMap[col.TMDBID] = col
+				}
+			}
+		}
+	}
+
+	// Convert to slice
+	collections := make([]*models.Collection, 0, len(collectionMap))
+	for _, c := range collectionMap {
+		collections = append(collections, c)
+	}
+
+	return collections, nil
+}
+
+// getCollectionsFromMovieIDs extracts collection info from a set of movie IDs
+func (c *TMDBClient) getCollectionsFromMovieIDs(ctx context.Context, movieIDs map[int]bool) ([]*models.Collection, error) {
+	collectionMap := make(map[int]*models.Collection)
+
+	// Process movies in parallel with limited concurrency
+	type result struct {
+		collection *models.Collection
+	}
+	
+	results := make(chan result, len(movieIDs))
+	semaphore := make(chan struct{}, 10) // Limit concurrent requests
+
+	for movieID := range movieIDs {
+		go func(id int) {
+			semaphore <- struct{}{} // Acquire
+			defer func() { <-semaphore }() // Release
+
+			_, collection, err := c.GetMovieWithCollection(ctx, id)
+			if err == nil && collection != nil {
+				results <- result{collection: collection}
+			} else {
+				results <- result{collection: nil}
+			}
+		}(movieID)
+	}
+
+	// Collect results
+	for i := 0; i < len(movieIDs); i++ {
+		res := <-results
+		if res.collection != nil {
+			if _, exists := collectionMap[res.collection.TMDBID]; !exists {
+				collectionMap[res.collection.TMDBID] = res.collection
+			}
+		}
+	}
+
+	collections := make([]*models.Collection, 0, len(collectionMap))
+	for _, c := range collectionMap {
+		collections = append(collections, c)
+	}
+
+	return collections, nil
+}
+
 // GetNowPlaying returns movies currently in theaters or TV shows on air
 func (c *TMDBClient) GetNowPlaying(ctx context.Context, mediaType string) ([]TrendingItem, error) {
 	var endpoint string

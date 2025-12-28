@@ -164,8 +164,11 @@ export const streamarrApi = {
   getPopularCollections: () =>
     api.get('/discover/collections'),
   
-  browseCollections: (page: number = 1, query?: string) =>
-    api.get('/discover/collections/browse', { params: { page, query } }),
+  browseCollections: (page: number = 1, query?: string, catalog?: string, genre?: number, country?: string) =>
+    api.get('/discover/collections/browse', { params: { page, query, catalog, genre, country } }),
+  
+  searchCollectionsEnhanced: (query: string) =>
+    api.get('/search/collections', { params: { q: query, enhanced: 'true' } }),
   
   // TMDB Details (with videos)
   getTMDBDetails: (mediaType: 'movie' | 'tv', tmdbId: number) =>
