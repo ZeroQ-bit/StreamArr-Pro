@@ -5,7 +5,7 @@ import { streamarrApi, tmdbImageUrl } from '../services/api';
 import { 
   Layers, ChevronLeft, ChevronRight, Plus, Check, Loader2, 
   Search as SearchIcon, ArrowLeft, CheckCircle, AlertCircle, X, SlidersHorizontal,
-  TrendingUp, Star, Calendar, Globe, Film
+  TrendingUp, Star, Calendar, Globe, Film, Library
 } from 'lucide-react';
 import type { Collection } from '../types';
 
@@ -50,6 +50,7 @@ const CATALOG_OPTIONS = [
   { id: 'newReleases', name: 'New Releases', icon: Calendar, description: 'Collections with recent movies' },
   { id: 'byGenre', name: 'By Genre', icon: Film, description: 'Filter by genre' },
   { id: 'byCountry', name: 'By Country', icon: Globe, description: 'Filter by country' },
+  { id: 'all', name: 'All Collections', icon: Library, description: 'Browse ALL TMDB collections by ID' },
 ];
 
 export default function BrowseCollections() {

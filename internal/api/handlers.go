@@ -3201,6 +3201,36 @@ func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 			if country != "" {
 				params.Country = country
 			}
+		case "all":
+			// Browse ALL collections by ID range
+			// Each page covers 500 IDs (e.g., page 1 = IDs 1-500, page 2 = IDs 501-1000, etc.)
+			idsPerPage := 500
+			startID := (page-1)*idsPerPage + 1
+			endID := startID + idsPerPage
+			
+			allCollections, err = h.tmdbClient.FetchCollectionsByIDRange(ctx, startID, endID)
+			if err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to fetch collections")
+				return
+			}
+			
+			// Sort by name for consistent ordering
+			sort.Slice(allCollections, func(i, j int) bool {
+				return allCollections[i].Name < allCollections[j].Name
+			})
+			
+			// Return early with special pagination for "all" catalog
+			// TMDB has ~1,000,000+ collection IDs, but many are invalid
+			// Estimate ~200,000 valid collections = 400 pages
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"collections": allCollections,
+				"page":        page,
+				"totalPages":  400, // Approximate - covers IDs up to 200,000
+				"total":       len(allCollections),
+				"catalog":     catalog,
+				"idRange":     map[string]int{"start": startID, "end": endID},
+			})
+			return
 		default:
 			params.SortBy = "popularity.desc"
 			params.MinVoteCount = 50

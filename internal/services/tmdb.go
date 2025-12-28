@@ -231,6 +231,76 @@ func (c *TMDBClient) GetCollection(ctx context.Context, collectionID int) (*mode
 	return collection, movieIDs, nil
 }
 
+// GetCollectionByID fetches a single collection by ID, returns nil if not found
+func (c *TMDBClient) GetCollectionByID(ctx context.Context, collectionID int) (*models.Collection, error) {
+	endpoint := fmt.Sprintf("%s/collection/%d", tmdbBaseURL, collectionID)
+	params := url.Values{}
+	params.Set("api_key", c.apiKey)
+
+	data, err := c.makeRequest(ctx, endpoint, params)
+	if err != nil {
+		return nil, err // Collection doesn't exist or error
+	}
+
+	var tc tmdbCollection
+	if err := json.Unmarshal(data, &tc); err != nil {
+		return nil, err
+	}
+
+	return &models.Collection{
+		TMDBID:       tc.ID,
+		Name:         tc.Name,
+		Overview:     tc.Overview,
+		PosterPath:   tc.PosterPath,
+		BackdropPath: tc.BackdropPath,
+		TotalMovies:  len(tc.Parts),
+	}, nil
+}
+
+// FetchCollectionsByIDRange fetches all valid collections in an ID range
+// This is useful for browsing all TMDB collections (IDs range from 1 to ~1,000,000+)
+func (c *TMDBClient) FetchCollectionsByIDRange(ctx context.Context, startID, endID int) ([]*models.Collection, error) {
+	if endID <= startID {
+		return nil, fmt.Errorf("endID must be greater than startID")
+	}
+	
+	// Limit range to prevent too many requests
+	maxRange := 500
+	if endID-startID > maxRange {
+		endID = startID + maxRange
+	}
+
+	type result struct {
+		collection *models.Collection
+		err        error
+	}
+
+	results := make(chan result, endID-startID)
+	semaphore := make(chan struct{}, 30) // 30 concurrent requests
+
+	// Fetch all collections in range in parallel
+	for id := startID; id < endID; id++ {
+		go func(collectionID int) {
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			collection, err := c.GetCollectionByID(ctx, collectionID)
+			results <- result{collection: collection, err: err}
+		}(id)
+	}
+
+	// Collect valid collections
+	collections := make([]*models.Collection, 0)
+	for i := 0; i < endID-startID; i++ {
+		res := <-results
+		if res.err == nil && res.collection != nil {
+			collections = append(collections, res.collection)
+		}
+	}
+
+	return collections, nil
+}
+
 // GetCollectionWithMovies retrieves full collection details including all movie info from TMDB
 func (c *TMDBClient) GetCollectionWithMovies(ctx context.Context, collectionID int) (*models.Collection, []CollectionMovie, error) {
 	endpoint := fmt.Sprintf("%s/collection/%d", tmdbBaseURL, collectionID)
