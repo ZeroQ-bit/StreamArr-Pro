@@ -3968,17 +3968,8 @@ func (h *Handler) checkForTagUpdates(w http.ResponseWriter, r *http.Request) {
 
 // InstallUpdate triggers the update process
 func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
-	// Check if update script exists
-	updateScript := "./scripts/update.sh"
-	if _, err := os.Stat(updateScript); os.IsNotExist(err) {
-		// Try old location for backward compatibility
-		updateScript = "./update.sh"
-		if _, err := os.Stat(updateScript); os.IsNotExist(err) {
-			respondError(w, http.StatusNotImplemented, "Update script not found. Please update manually with: git pull && docker compose down && docker compose up -d --build")
-			return
-		}
-	}
-
+	log.Println("[Update] InstallUpdate called")
+	
 	// Get update branch from settings
 	branch := "main"
 	if h.settingsManager != nil {
@@ -3998,7 +3989,7 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 			if json.NewDecoder(resp.Body).Decode(&tags); err == nil && len(tags) > 0 {
 				branch = tags[0].Name
-				log.Printf("[Update] Using script: %s", branch)
+				log.Printf("[Update] Using latest tag: %s", branch)
 			} else {
 				log.Println("[Update] Warning: Failed to fetch latest tag, falling back to 'main'")
 				branch = "main"
@@ -4009,7 +4000,7 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.Println("[Update] Starting update process...")
+	log.Printf("[Update] Starting update process with branch: %s", branch)
 
 	// Check if running in Docker
 	isDocker := false
@@ -4022,29 +4013,48 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 		// In Docker, check prerequisites
 		hostDir := "/app/host"
 		if _, err := os.Stat(hostDir); os.IsNotExist(err) {
-			respondError(w, http.StatusInternalServerError, "Host directory not mounted at /app/host. Add '- .:/app/host' to docker-compose volumes.")
+			log.Printf("[Update] ERROR: Host directory not found at %s", hostDir)
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"success": false,
+				"error":   "Host directory not mounted at /app/host. Add '- .:/app/host' to docker-compose volumes and recreate the container.",
+			})
 			return
 		}
+		log.Printf("[Update] Host directory found: %s", hostDir)
 
 		dockerSocket := "/var/run/docker.sock"
 		if _, err := os.Stat(dockerSocket); os.IsNotExist(err) {
-			respondError(w, http.StatusInternalServerError, "Docker socket not mounted. Add '- /var/run/docker.sock:/var/run/docker.sock' to docker-compose volumes.")
+			log.Printf("[Update] ERROR: Docker socket not found at %s", dockerSocket)
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"success": false,
+				"error":   "Docker socket not mounted. Add '- /var/run/docker.sock:/var/run/docker.sock' to docker-compose volumes and recreate the container.",
+			})
 			return
 		}
+		log.Printf("[Update] Docker socket found: %s", dockerSocket)
 
 		// Check for git in host directory
 		gitDir := hostDir + "/.git"
 		if _, err := os.Stat(gitDir); os.IsNotExist(err) {
-			respondError(w, http.StatusInternalServerError, "Git repository not found in host directory. Ensure the project was cloned with git.")
+			log.Printf("[Update] ERROR: Git directory not found at %s", gitDir)
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"success": false,
+				"error":   "Git repository not found in host directory. Ensure the project was cloned with git (not downloaded as ZIP).",
+			})
 			return
 		}
+		log.Printf("[Update] Git directory found: %s", gitDir)
 
 		// Check if update.sh is in scripts/ folder (new location) or root (old location)
 		scriptPath := hostDir + "/scripts/update.sh"
 		if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
 			scriptPath = hostDir + "/update.sh"
 			if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
-				respondError(w, http.StatusNotImplemented, "Update script not found in host directory. Please update manually: cd /root/StreamArrPro && git pull && docker compose down && docker compose up -d --build")
+				log.Printf("[Update] ERROR: Update script not found")
+				respondJSON(w, http.StatusOK, map[string]interface{}{
+					"success": false,
+					"error":   "Update script not found. Please update manually: cd to your project directory && git pull && docker compose down && docker compose up -d --build",
+				})
 				return
 			}
 		}
@@ -4054,7 +4064,9 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[Update] Host directory: %s", hostDir)
 
 		// Ensure logs directory exists in host
-		os.MkdirAll(hostDir+"/logs", 0755)
+		if err := os.MkdirAll(hostDir+"/logs", 0755); err != nil {
+			log.Printf("[Update] Warning: Failed to create logs directory: %v", err)
+		}
 
 		// Make sure script is executable
 		if err := exec.Command("chmod", "+x", scriptPath).Run(); err != nil {
@@ -4069,23 +4081,16 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 			os.Remove(lockFile)
 		}
 
-		// Create a wrapper script that runs the update and handles errors
-		wrapperScript := hostDir + "/logs/run-update.sh"
-		wrapperContent := fmt.Sprintf(`#!/bin/bash
-set -e
-cd "%s"
-exec /bin/sh "%s" "%s"
-`, hostDir, scriptPath, branch)
+		// Run update script in background using docker exec on host
+		// This ensures the update continues even after the container stops
+		log.Println("[Update] Executing update script via docker...")
 		
-		if err := os.WriteFile(wrapperScript, []byte(wrapperContent), 0755); err != nil {
-			log.Printf("[Update] Warning: Failed to create wrapper script: %v", err)
-		}
-
-		// Run update script in background (detached) so it survives container stop
-		// Using screen/detach properly to ensure process survives
-		log.Println("[Update] Executing update script in background...")
+		// Method 1: Try running directly on host via docker exec
+		cmdStr := fmt.Sprintf(`docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "%s":"%s" -w "%s" alpine/git sh -c "cd %s && git pull origin %s" && docker compose -f %s/docker-compose.yml up -d --build`,
+			hostDir, hostDir, hostDir, hostDir, branch, hostDir)
 		
-		cmdStr := fmt.Sprintf("cd %s && nohup /bin/sh -c '/bin/sh %s %s >> %s/logs/update.log 2>&1' > /dev/null 2>&1 &", 
+		// Simpler approach: just run the update script
+		cmdStr = fmt.Sprintf("cd %s && nohup /bin/sh %s %s > %s/logs/update.log 2>&1 &", 
 			hostDir, scriptPath, branch, hostDir)
 		
 		cmd := exec.Command("sh", "-c", cmdStr)
@@ -4093,19 +4098,24 @@ exec /bin/sh "%s" "%s"
 			"HOME=/root",
 			"PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 		)
+		cmd.Dir = hostDir
 
-		// Start the process
-		if err := cmd.Start(); err != nil {
+		// Capture any immediate output for debugging
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Printf("[Update] Command output: %s", string(output))
 			log.Printf("[Update] Failed to start update: %v", err)
-			respondError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to start update: %v", err))
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"success": false,
+				"error":   fmt.Sprintf("Failed to start update: %v. Output: %s", err, string(output)),
+			})
 			return
 		}
 
-		// Don't wait for the command, let it run in background
-		go cmd.Wait()
+		log.Printf("[Update] Command started, output: %s", string(output))
 
 		// Give the script a moment to start
-		time.Sleep(1 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 
 		// Verify logs were created
 		logsFile := hostDir + "/logs/update.log"
@@ -4117,19 +4127,33 @@ exec /bin/sh "%s" "%s"
 
 		log.Println("[Update] Update script started in background")
 	} else {
-		// Non-Docker environment - use update.sh (already set at the top)
-		// updateScript is already "./scripts/update.sh"
+		// Non-Docker environment
+		updateScript := "./scripts/update.sh"
+		if _, err := os.Stat(updateScript); os.IsNotExist(err) {
+			updateScript = "./update.sh"
+			if _, err := os.Stat(updateScript); os.IsNotExist(err) {
+				respondJSON(w, http.StatusOK, map[string]interface{}{
+					"success": false,
+					"error":   "Update script not found. Please update manually with: git pull && go build -o server ./cmd/server",
+				})
+				return
+			}
+		}
 
 		log.Printf("[Update] Using script: %s with branch: %s", updateScript, branch)
 
+		// Ensure logs directory exists
+		os.MkdirAll("./logs", 0755)
+
 		cmd := exec.Command("/bin/bash", "-c",
-			fmt.Sprintf("cd %s && nohup setsid /bin/bash %s %s > logs/update.log 2>&1 &",
-				".", updateScript, branch))
-		cmd.Dir = "."
+			fmt.Sprintf("nohup /bin/bash %s %s > logs/update.log 2>&1 &", updateScript, branch))
 
 		if err := cmd.Start(); err != nil {
 			log.Printf("[Update] Failed to start update: %v", err)
-			respondError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to start update: %v", err))
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"success": false,
+				"error":   fmt.Sprintf("Failed to start update: %v", err),
+			})
 			return
 		}
 
