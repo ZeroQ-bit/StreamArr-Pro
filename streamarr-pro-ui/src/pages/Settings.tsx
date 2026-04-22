@@ -165,6 +165,8 @@ interface VersionInfo {
   update_available: boolean;
   changelog: string;
   update_branch?: string;
+  self_update_supported?: boolean;
+  update_message?: string;
 }
 
 export default function Settings() {
@@ -3891,22 +3893,26 @@ export default function Settings() {
                       </div>
                     )}
                     <div className="mt-3">
-                      <label className="block text-xs text-slate-400 mb-1">Update Channel</label>
-                      <select
-                        value={settings?.update_branch || 'main'}
-                        onChange={(e) => updateSetting('update_branch', e.target.value)}
-                        className="px-3 py-2 bg-[#1f1f1f] border border-white/10 rounded text-white text-sm"
-                      >
-                        <option value="main">main</option>
-                        <option value="dev">dev</option>
-                      </select>
+                      {versionInfo?.self_update_supported !== false && (
+                        <>
+                          <label className="block text-xs text-slate-400 mb-1">Update Channel</label>
+                          <select
+                            value={settings?.update_branch || 'main'}
+                            onChange={(e) => updateSetting('update_branch', e.target.value)}
+                            className="px-3 py-2 bg-[#1f1f1f] border border-white/10 rounded text-white text-sm"
+                          >
+                            <option value="main">main</option>
+                            <option value="dev">dev</option>
+                          </select>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
               </div>
 
               {/* Update Status */}
-              {versionInfo?.update_available && (
+              {versionInfo?.self_update_supported !== false && versionInfo?.update_available && (
                 <div className="bg-green-900/30 border border-green-700 rounded-lg p-4 mb-6">
                   <div className="flex items-center gap-3">
                     <CheckCircle className="h-6 w-6 text-green-400" />
@@ -3932,52 +3938,70 @@ export default function Settings() {
                   <Download className="h-5 w-5" /> Updates
                 </h4>
                 
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    onClick={checkForUpdates}
-                    disabled={checkingUpdate || installingUpdate}
-                    className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
-                  >
-                    {checkingUpdate ? (
+                {versionInfo?.self_update_supported === false ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-blue-700 bg-blue-900/30 p-3 text-sm text-blue-100">
+                      {versionInfo.update_message || 'Updates are managed by your deployment platform for this installation.'}
+                    </div>
+                    <a
+                      href="https://github.com/ZeroQ-bit/StreamArr-Pro/releases"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+                    >
+                      <ExternalLink className="h-4 w-4" /> View Releases
+                    </a>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={checkForUpdates}
+                      disabled={checkingUpdate || installingUpdate}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {checkingUpdate ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 animate-spin" /> Checking...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="h-4 w-4" /> Check for Updates
+                        </>
+                      )}
+                    </button>
+                    {versionInfo?.update_available && (
                       <>
-                        <RefreshCw className="h-4 w-4 animate-spin" /> Checking...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="h-4 w-4" /> Check for Updates
+                        <button
+                          onClick={installUpdate}
+                          disabled={installingUpdate}
+                          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {installingUpdate ? (
+                            <>
+                              <RefreshCw className="h-4 w-4 animate-spin" /> Installing...
+                            </>
+                          ) : (
+                            <>
+                              <Download className="h-4 w-4" /> Install Update
+                            </>
+                          )}
+                        </button>
+                        <a
+                          href="https://github.com/ZeroQ-bit/StreamArr-Pro/releases"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+                        >
+                          <ExternalLink className="h-4 w-4" /> View on GitHub
+                        </a>
                       </>
                     )}
-                  </button>
-                  {versionInfo?.update_available && (
-                    <>
-                      <button
-                        onClick={installUpdate}
-                        disabled={installingUpdate}
-                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-                      >
-                        {installingUpdate ? (
-                          <>
-                            <RefreshCw className="h-4 w-4 animate-spin" /> Installing...
-                          </>
-                        ) : (
-                          <>
-                            <Download className="h-4 w-4" /> Install Update
-                          </>
-                        )}
-                      </button>
-                      <a
-                        href="https://github.com/Zerr0-C00L/StreamArr_Pro/releases"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
-                      >
-                        <ExternalLink className="h-4 w-4" /> View on GitHub
-                      </a>
-                    </>
-                  )}
-                </div>
+                  </div>
+                )}
                 <p className="text-xs text-slate-500 mt-3">
-                  {installingUpdate 
+                  {versionInfo?.self_update_supported === false
+                    ? 'This installation relies on your app platform for updates.'
+                    : installingUpdate 
                     ? 'Update in progress. The server will restart automatically...'
                     : 'Checking updates from your configured branch.'}
                 </p>
@@ -4052,7 +4076,7 @@ export default function Settings() {
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   <a
-                    href="https://github.com/Zerr0-C00L/StreamArr_Pro"
+                    href="https://github.com/ZeroQ-bit/StreamArr-Pro"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 px-4 py-3 bg-[#2a2a2a] text-slate-300 rounded-lg hover:bg-gray-700 hover:text-white"
@@ -4060,7 +4084,7 @@ export default function Settings() {
                     <Github className="h-5 w-5" /> GitHub Repository
                   </a>
                   <a
-                    href="https://github.com/Zerr0-C00L/StreamArr_Pro/issues"
+                    href="https://github.com/ZeroQ-bit/StreamArr-Pro/issues"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 px-4 py-3 bg-[#2a2a2a] text-slate-300 rounded-lg hover:bg-gray-700 hover:text-white"
@@ -4068,7 +4092,7 @@ export default function Settings() {
                     <AlertCircle className="h-5 w-5" /> Report Issue
                   </a>
                   <a
-                    href="https://github.com/Zerr0-C00L/StreamArr/discussions"
+                    href="https://github.com/ZeroQ-bit/StreamArr-Pro/discussions"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 px-4 py-3 bg-[#2a2a2a] text-slate-300 rounded-lg hover:bg-gray-700 hover:text-white"

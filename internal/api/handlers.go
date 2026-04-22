@@ -33,6 +33,28 @@ var (
 	BuildDate = "unknown"
 )
 
+const githubRepo = "ZeroQ-bit/StreamArr-Pro"
+
+func selfUpdateSupported() bool {
+	return !strings.EqualFold(os.Getenv("STREAMARR_DISABLE_SELF_UPDATE"), "true")
+}
+
+func versionResponseBase() map[string]interface{} {
+	supported := selfUpdateSupported()
+	response := map[string]interface{}{
+		"current_version":       Version,
+		"current_commit":        Commit,
+		"build_date":            BuildDate,
+		"self_update_supported": supported,
+	}
+
+	if !supported {
+		response["update_message"] = "Self-updates are disabled for this deployment. Update StreamArr Pro through your app manager instead."
+	}
+
+	return response
+}
+
 type Handler struct {
 	movieStore      *database.MovieStore
 	seriesStore     *database.SeriesStore
@@ -149,7 +171,7 @@ func (h *Handler) ListMovies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sorting parameters
-	sortBy := r.URL.Query().Get("sort") // title, date_added, release_date, rating, runtime, monitored, genre
+	sortBy := r.URL.Query().Get("sort")     // title, date_added, release_date, rating, runtime, monitored, genre
 	sortOrder := r.URL.Query().Get("order") // asc, desc
 	if sortOrder == "" {
 		sortOrder = "asc"
@@ -729,7 +751,7 @@ func parseQualityValue(quality string) int {
 func (h *Handler) GetMediaVideos(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	
+
 	id, err := strconv.ParseInt(vars["id"], 10, 64)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "invalid ID")
@@ -740,7 +762,7 @@ func (h *Handler) GetMediaVideos(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	var mediaType string
 	var tmdbID int
-	
+
 	if strings.Contains(path, "/movies/") {
 		mediaType = "movie"
 		movie, err := h.movieStore.Get(ctx, id)
@@ -771,10 +793,10 @@ func (h *Handler) GetMediaVideos(w http.ResponseWriter, r *http.Request) {
 	// Also prioritize YouTube videos
 	sortedVideos := make([]services.Video, len(videos))
 	copy(sortedVideos, videos)
-	
+
 	sort.SliceStable(sortedVideos, func(i, j int) bool {
 		vi, vj := sortedVideos[i], sortedVideos[j]
-		
+
 		// YouTube videos first
 		if vi.Site == "YouTube" && vj.Site != "YouTube" {
 			return true
@@ -782,7 +804,7 @@ func (h *Handler) GetMediaVideos(w http.ResponseWriter, r *http.Request) {
 		if vi.Site != "YouTube" && vj.Site == "YouTube" {
 			return false
 		}
-		
+
 		// Official videos first
 		if vi.Official && !vj.Official {
 			return true
@@ -790,7 +812,7 @@ func (h *Handler) GetMediaVideos(w http.ResponseWriter, r *http.Request) {
 		if !vi.Official && vj.Official {
 			return false
 		}
-		
+
 		// Trailers before teasers, teasers before others
 		typeOrder := map[string]int{"Trailer": 0, "Teaser": 1, "Clip": 2, "Featurette": 3, "Behind the Scenes": 4}
 		orderI, okI := typeOrder[vi.Type]
@@ -1056,17 +1078,17 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 	if h.settingsManager != nil && h.streamService != nil {
 		settings := h.settingsManager.Get()
 		excludedQualities := settings.ExcludedQualities
-		
+
 		// Apply quality type exclusions (REMUX, HDR, DV, etc.)
 		if excludedQualities != "" {
 			log.Printf("[FILTER] Applying quality exclusions: %s", excludedQualities)
-			
+
 			filteredStreams := make([]providers.TorrentioStream, 0, len(providerStreams))
 			for _, ps := range providerStreams {
 				// Parse stream to get quality details
 				if svc, ok := h.streamService.(*streams.StreamService); ok {
 					parsed := svc.ParseStreamFromTorrentName(ps.Title, ps.InfoHash, ps.Source, 0)
-					
+
 					// Check if should be excluded based on quality type
 					if svc.ShouldExcludeByQualityType(ps.Title, parsed.Resolution, parsed.HDRType, excludedQualities) {
 						log.Printf("[FILTER] 🚫 Excluded stream: %s", ps.Title)
@@ -1082,7 +1104,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 			}
 			providerStreams = filteredStreams
 		}
-		
+
 		// Apply release group/language filters if enabled
 		if settings.EnableReleaseFilters {
 			log.Printf("[FILTER] Applying release filters: excludedGroups=%s, excludedLanguages=%s",
@@ -1361,7 +1383,7 @@ func (h *Handler) ListSeries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sorting parameters
-	sortBy := r.URL.Query().Get("sort") // title, date_added, release_date, rating, monitored, genre
+	sortBy := r.URL.Query().Get("sort")     // title, date_added, release_date, rating, monitored, genre
 	sortOrder := r.URL.Query().Get("order") // asc, desc
 	if sortOrder == "" {
 		sortOrder = "asc"
@@ -2981,10 +3003,10 @@ func (h *Handler) SearchCollections(w http.ResponseWriter, r *http.Request) {
 
 	// Use enhanced search if "enhanced" param is set, otherwise use simple search
 	enhanced := r.URL.Query().Get("enhanced")
-	
+
 	var collections []*models.Collection
 	var err error
-	
+
 	if enhanced == "true" || enhanced == "1" {
 		// Multi-strategy search: collection name + movie name + person (actor/director)
 		collections, err = h.tmdbClient.EnhancedSearchCollections(ctx, query)
@@ -2992,7 +3014,7 @@ func (h *Handler) SearchCollections(w http.ResponseWriter, r *http.Request) {
 		// Simple collection name search
 		collections, err = h.tmdbClient.SearchCollections(ctx, query)
 	}
-	
+
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to search collections")
 		return
@@ -3005,19 +3027,19 @@ func (h *Handler) SearchCollections(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetTMDBDetails(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	
+
 	mediaType := vars["type"] // "movie" or "tv"
 	idStr := vars["id"]
-	
+
 	tmdbID, err := strconv.Atoi(idStr)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "invalid TMDB ID")
 		return
 	}
-	
+
 	// Prepare response structure
 	response := make(map[string]interface{})
-	
+
 	if mediaType == "movie" {
 		movie, err := h.tmdbClient.GetMovie(ctx, tmdbID)
 		if err != nil {
@@ -3052,7 +3074,7 @@ func (h *Handler) GetTMDBDetails(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "invalid media type, must be 'movie' or 'tv'")
 		return
 	}
-	
+
 	// Get videos/trailers
 	videos, err := h.tmdbClient.GetVideos(ctx, mediaType, tmdbID)
 	if err == nil {
@@ -3060,14 +3082,14 @@ func (h *Handler) GetTMDBDetails(w http.ResponseWriter, r *http.Request) {
 			"results": videos,
 		}
 	}
-	
+
 	respondJSON(w, http.StatusOK, response)
 }
 
 // GetPopularCollections handles GET /api/discover/collections - get popular collections from TMDB
 func (h *Handler) GetPopularCollections(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	// TMDB doesn't have a direct "popular collections" endpoint,
 	// so we'll search for well-known collection keywords
 	popularSearchTerms := []string{
@@ -3092,10 +3114,10 @@ func (h *Handler) GetPopularCollections(w http.ResponseWriter, r *http.Request) 
 		"Indiana Jones",
 		"The Matrix",
 	}
-	
+
 	var allCollections []*models.Collection
 	seen := make(map[int]bool)
-	
+
 	for _, term := range popularSearchTerms {
 		collections, err := h.tmdbClient.SearchCollections(ctx, term)
 		if err != nil {
@@ -3112,7 +3134,7 @@ func (h *Handler) GetPopularCollections(w http.ResponseWriter, r *http.Request) 
 			break
 		}
 	}
-	
+
 	respondJSON(w, http.StatusOK, allCollections)
 }
 
@@ -3120,7 +3142,7 @@ func (h *Handler) GetPopularCollections(w http.ResponseWriter, r *http.Request) 
 // Uses the tmdb-collections approach: discover movies via filters and extract their collections
 func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	// Get page parameter (default 1)
 	page := 1
 	if p := r.URL.Query().Get("page"); p != "" {
@@ -3128,16 +3150,16 @@ func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 			page = parsed
 		}
 	}
-	
+
 	// Get search query if provided
 	query := r.URL.Query().Get("query")
-	
+
 	// Get catalog type for filtering
 	catalog := r.URL.Query().Get("catalog") // popular, topRated, newReleases, byGenre, byCountry
 	if catalog == "" {
 		catalog = "popular"
 	}
-	
+
 	// Get optional genre filter
 	genreID := 0
 	if g := r.URL.Query().Get("genre"); g != "" {
@@ -3145,13 +3167,13 @@ func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 			genreID = parsed
 		}
 	}
-	
+
 	// Get optional country filter
 	country := r.URL.Query().Get("country") // ISO 3166-1 code like "US", "GB", "FR"
-	
+
 	var allCollections []*models.Collection
 	var err error
-	
+
 	if query != "" {
 		// If search query provided, use enhanced search
 		allCollections, err = h.tmdbClient.EnhancedSearchCollections(ctx, query)
@@ -3162,7 +3184,7 @@ func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Use discover-based collection fetching
 		params := services.DiscoverCollectionsParams{}
-		
+
 		switch catalog {
 		case "popular":
 			params.SortBy = "popularity.desc"
@@ -3207,18 +3229,18 @@ func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 			idsPerPage := 500
 			startID := (page-1)*idsPerPage + 1
 			endID := startID + idsPerPage
-			
+
 			allCollections, err = h.tmdbClient.FetchCollectionsByIDRange(ctx, startID, endID)
 			if err != nil {
 				respondError(w, http.StatusInternalServerError, "failed to fetch collections")
 				return
 			}
-			
+
 			// Sort by name for consistent ordering
 			sort.Slice(allCollections, func(i, j int) bool {
 				return allCollections[i].Name < allCollections[j].Name
 			})
-			
+
 			// Return early with special pagination for "all" catalog
 			// TMDB has ~1,000,000+ collection IDs, but many are invalid
 			// Estimate ~200,000 valid collections = 400 pages
@@ -3235,20 +3257,20 @@ func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 			params.SortBy = "popularity.desc"
 			params.MinVoteCount = 50
 		}
-		
+
 		// Fetch more pages to get more collections (each page = 20 movies, ~30-50% have collections)
 		maxPages := 10 + (page-1)*5
 		if maxPages > 25 {
 			maxPages = 25
 		}
-		
+
 		allCollections, err = h.tmdbClient.DiscoverCollections(ctx, params, maxPages)
 		if err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to discover collections")
 			return
 		}
 	}
-	
+
 	// Deduplicate and sort (already handled in DiscoverCollections, but ensure uniqueness)
 	seen := make(map[int]bool)
 	uniqueCollections := make([]*models.Collection, 0, len(allCollections))
@@ -3258,13 +3280,13 @@ func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 			uniqueCollections = append(uniqueCollections, c)
 		}
 	}
-	
+
 	// Pagination
 	totalCollections := len(uniqueCollections)
 	itemsPerPage := 50
 	startIdx := (page - 1) * itemsPerPage
 	endIdx := startIdx + itemsPerPage
-	
+
 	if startIdx >= totalCollections {
 		startIdx = 0
 		endIdx = itemsPerPage
@@ -3272,17 +3294,17 @@ func (h *Handler) BrowseCollections(w http.ResponseWriter, r *http.Request) {
 	if endIdx > totalCollections {
 		endIdx = totalCollections
 	}
-	
+
 	paginatedCollections := uniqueCollections
 	if startIdx < len(uniqueCollections) {
 		paginatedCollections = uniqueCollections[startIdx:endIdx]
 	}
-	
+
 	totalPages := (totalCollections + itemsPerPage - 1) / itemsPerPage
 	if totalPages < 1 {
 		totalPages = 1
 	}
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"collections": paginatedCollections,
 		"page":        page,
@@ -3785,11 +3807,7 @@ func (h *Handler) ExecuteDatabaseAction(w http.ResponseWriter, r *http.Request) 
 
 // GetVersion returns the current version info
 func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"current_version": Version,
-		"current_commit":  Commit,
-		"build_date":      BuildDate,
-	})
+	respondJSON(w, http.StatusOK, versionResponseBase())
 }
 
 // CheckForUpdates checks GitHub for the latest version
@@ -3810,14 +3828,11 @@ func (h *Handler) CheckForUpdates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch latest commit from GitHub API
-	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/Zerr0-C00L/StreamArr_Pro/commits/%s", branch))
+	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", githubRepo, branch))
 	if err != nil {
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"current_version": Version,
-			"current_commit":  Commit,
-			"build_date":      BuildDate,
-			"error":           "Failed to check for updates",
-		})
+		response := versionResponseBase()
+		response["error"] = "Failed to check for updates"
+		respondJSON(w, http.StatusOK, response)
 		return
 	}
 	defer resp.Body.Close()
@@ -3833,12 +3848,9 @@ func (h *Handler) CheckForUpdates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&commitData); err != nil {
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"current_version": Version,
-			"current_commit":  Commit,
-			"build_date":      BuildDate,
-			"error":           "Failed to parse update info",
-		})
+		response := versionResponseBase()
+		response["error"] = "Failed to parse update info"
+		respondJSON(w, http.StatusOK, response)
 		return
 	}
 
@@ -3865,30 +3877,25 @@ func (h *Handler) CheckForUpdates(w http.ResponseWriter, r *http.Request) {
 		changelog = changelog[:idx]
 	}
 
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"current_version":  Version,
-		"current_commit":   Commit,
-		"build_date":       BuildDate,
-		"latest_version":   branch,
-		"latest_commit":    commitData.SHA,
-		"latest_date":      commitData.Commit.Author.Date,
-		"update_available": updateAvailable,
-		"changelog":        changelog,
-		"update_branch":    branch,
-	})
+	response := versionResponseBase()
+	response["latest_version"] = branch
+	response["latest_commit"] = commitData.SHA
+	response["latest_date"] = commitData.Commit.Author.Date
+	response["update_available"] = updateAvailable
+	response["changelog"] = changelog
+	response["update_branch"] = branch
+
+	respondJSON(w, http.StatusOK, response)
 }
 
 // checkForTagUpdates checks GitHub for the latest tag/release
 func (h *Handler) checkForTagUpdates(w http.ResponseWriter, r *http.Request) {
 	// Fetch latest tags from GitHub API
-	resp, err := http.Get("https://api.github.com/repos/Zerr0-C00L/StreamArr_Pro/tags?per_page=1")
+	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/tags?per_page=1", githubRepo))
 	if err != nil {
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"current_version": Version,
-			"current_commit":  Commit,
-			"build_date":      BuildDate,
-			"error":           "Failed to check for updates",
-		})
+		response := versionResponseBase()
+		response["error"] = "Failed to check for updates"
+		respondJSON(w, http.StatusOK, response)
 		return
 	}
 	defer resp.Body.Close()
@@ -3901,12 +3908,9 @@ func (h *Handler) checkForTagUpdates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil || len(tags) == 0 {
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"current_version": Version,
-			"current_commit":  Commit,
-			"build_date":      BuildDate,
-			"error":           "Failed to parse update info or no tags found",
-		})
+		response := versionResponseBase()
+		response["error"] = "Failed to parse update info or no tags found"
+		respondJSON(w, http.StatusOK, response)
 		return
 	}
 
@@ -3938,7 +3942,7 @@ func (h *Handler) checkForTagUpdates(w http.ResponseWriter, r *http.Request) {
 
 	// Get release info for changelog
 	changelog := ""
-	releaseResp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/Zerr0-C00L/StreamArr_Pro/releases/tags/%s", latestVersion))
+	releaseResp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", githubRepo, latestVersion))
 	if err == nil {
 		defer releaseResp.Body.Close()
 		var releaseData struct {
@@ -3954,22 +3958,28 @@ func (h *Handler) checkForTagUpdates(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"current_version":  Version,
-		"current_commit":   Commit,
-		"build_date":       BuildDate,
-		"latest_version":   latestVersion,
-		"latest_commit":    latestCommit,
-		"update_available": updateAvailable,
-		"changelog":        changelog,
-		"update_branch":    "tag",
-	})
+	response := versionResponseBase()
+	response["latest_version"] = latestVersion
+	response["latest_commit"] = latestCommit
+	response["update_available"] = updateAvailable
+	response["changelog"] = changelog
+	response["update_branch"] = "tag"
+
+	respondJSON(w, http.StatusOK, response)
 }
 
 // InstallUpdate triggers the update process
 func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 	log.Println("[Update] InstallUpdate called")
-	
+
+	if !selfUpdateSupported() {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"success": false,
+			"error":   "Self-updates are disabled for this deployment. Update StreamArr Pro through your app manager instead.",
+		})
+		return
+	}
+
 	// Get update branch from settings
 	branch := "main"
 	if h.settingsManager != nil {
@@ -3981,7 +3991,7 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// If branch is "tag", fetch the latest tag name
 	if branch == "tag" {
-		resp, err := http.Get("https://api.github.com/repos/Zerr0-C00L/StreamArr_Pro/tags?per_page=1")
+		resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/tags?per_page=1", githubRepo))
 		if err == nil {
 			defer resp.Body.Close()
 			var tags []struct {
@@ -4084,15 +4094,15 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 		// Run update script in background using docker exec on host
 		// This ensures the update continues even after the container stops
 		log.Println("[Update] Executing update script via docker...")
-		
+
 		// Method 1: Try running directly on host via docker exec
 		cmdStr := fmt.Sprintf(`docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "%s":"%s" -w "%s" alpine/git sh -c "cd %s && git pull origin %s" && docker compose -f %s/docker-compose.yml up -d --build`,
 			hostDir, hostDir, hostDir, hostDir, branch, hostDir)
-		
+
 		// Simpler approach: just run the update script
-		cmdStr = fmt.Sprintf("cd %s && nohup /bin/sh %s %s > %s/logs/update.log 2>&1 &", 
+		cmdStr = fmt.Sprintf("cd %s && nohup /bin/sh %s %s > %s/logs/update.log 2>&1 &",
 			hostDir, scriptPath, branch, hostDir)
-		
+
 		cmd := exec.Command("sh", "-c", cmdStr)
 		cmd.Env = append(os.Environ(),
 			"HOME=/root",
@@ -5235,25 +5245,25 @@ func extractReleaseDateFromMetadata(url, category string) string {
 func (h *Handler) GetUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	lockFile := "logs/update.lock"
 	logFile := "logs/update.log"
-	
+
 	// Check if update is running
 	isRunning := false
 	var lockPID string
-	
+
 	if lockData, err := os.ReadFile(lockFile); err == nil {
 		lockPID = strings.TrimSpace(string(lockData))
 		isRunning = true // Lock exists
 	}
-	
+
 	// Get log file info
 	var logSize int64
 	var logModTime string
 	var logTail string
-	
+
 	if logInfo, err := os.Stat(logFile); err == nil {
 		logSize = logInfo.Size()
 		logModTime = logInfo.ModTime().Format("2006-01-02 15:04:05")
-		
+
 		// Read last 50 lines
 		if data, err := os.ReadFile(logFile); err == nil {
 			logTail = string(data)
@@ -5263,26 +5273,26 @@ func (h *Handler) GetUpdateStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"is_running":  isRunning,
-		"lock_pid":    lockPID,
-		"log_size":    logSize,
+		"is_running":   isRunning,
+		"lock_pid":     lockPID,
+		"log_size":     logSize,
 		"log_mod_time": logModTime,
-		"log_tail":    logTail,
+		"log_tail":     logTail,
 	})
 }
 
 // GetUpdateLog handles GET /api/debug/update-log
 func (h *Handler) GetUpdateLog(w http.ResponseWriter, r *http.Request) {
 	logFile := "logs/update.log"
-	
+
 	data, err := os.ReadFile(logFile)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "Update log not found. Update may not have been triggered yet.")
 		return
 	}
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"log": string(data),
 	})
@@ -5546,4 +5556,3 @@ func sortSeries(series []*models.Series, sortBy, sortOrder string) {
 		}
 	})
 }
-

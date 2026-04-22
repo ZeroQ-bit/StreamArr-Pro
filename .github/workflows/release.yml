@@ -29,7 +29,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.24'
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -51,7 +51,7 @@ jobs:
       - name: Build UI
         run: |
           cd streamarr-pro-ui
-          npm install
+          npm ci
           npm run build
           cd ..
           tar -czf streamarr-pro-ui-dist.tar.gz -C streamarr-pro-ui/dist .
@@ -102,7 +102,7 @@ jobs:
           
           ### Docker (Recommended)
           \`\`\`bash
-          docker pull ghcr.io/zerr0-c00l/streamarr-pro:${{ inputs.version }}
+          docker pull ghcr.io/zeroq-bit/streamarr-pro:${{ inputs.version }}
           \`\`\`
           
           ### Manual Installation

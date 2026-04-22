@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Zerr0-C00L/StreamArr_Pro/releases"><img src="https://img.shields.io/github/v/release/Zerr0-C00L/StreamArr_Pro?style=for-the-badge&logo=github&color=blue" alt="Release"></a>
+  <a href="https://github.com/ZeroQ-bit/StreamArr-Pro/releases"><img src="https://img.shields.io/github/v/release/ZeroQ-bit/StreamArr-Pro?style=for-the-badge&logo=github&color=blue" alt="Release"></a>
   <a href="#-quick-start"><img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker" alt="Docker"></a>
   <a href="#"><img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=for-the-badge&logo=go" alt="Go"></a>
   <a href="#"><img src="https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react" alt="React"></a>
@@ -103,8 +103,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/Zerr0-C00L/StreamArr_Pro.git
-cd StreamArr_Pro
+git clone https://github.com/ZeroQ-bit/StreamArr-Pro.git
+cd StreamArr-Pro
 
 # Start with Docker Compose
 docker compose up -d
@@ -115,9 +115,9 @@ docker compose logs -f streamarr
 
 **🎉 Done!** Open http://localhost:8080 in your browser.
 
-### Default Credentials
-- Username: `admin`
-- Password: `admin` (change in Settings)
+### First-Time Setup
+- Open the app and create your first admin account
+- Add your TMDB API key in Settings to enable metadata lookups
 
 ---
 
@@ -134,7 +134,7 @@ docker compose logs -f streamarr
 
 ```bash
 # 1. Clone to your preferred location
-git clone https://github.com/Zerr0-C00L/StreamArr_Pro.git /opt/streamarr
+git clone https://github.com/ZeroQ-bit/StreamArr-Pro.git /opt/streamarr
 cd /opt/streamarr
 
 # 2. (Optional) Configure environment
@@ -155,8 +155,8 @@ docker ps
 ssh user@your-server-ip
 
 # Clone repository
-git clone https://github.com/Zerr0-C00L/StreamArr_Pro.git ~/StreamArr_Pro
-cd ~/StreamArr_Pro
+git clone https://github.com/ZeroQ-bit/StreamArr-Pro.git ~/StreamArr-Pro
+cd ~/StreamArr-Pro
 
 # Start with Docker Compose (always from this directory!)
 docker compose up -d --build
@@ -179,7 +179,7 @@ The **Update App** button in Settings will:
 
 If updates aren't working, rebuild from the correct directory:
 ```bash
-cd /path/to/StreamArr_Pro  # Your cloned repository
+cd /path/to/StreamArr-Pro  # Your cloned repository
 docker compose down
 docker compose up -d --build
 ```
@@ -187,7 +187,7 @@ docker compose up -d --build
 ### Manual Update
 
 ```bash
-cd /path/to/StreamArr_Pro
+cd /path/to/StreamArr-Pro
 git pull origin main
 docker compose down
 docker compose up -d --build
@@ -389,7 +389,7 @@ docker compose down -v && docker compose up -d
 ## 📁 Project Structure
 
 ```
-StreamArr_Pro/
+StreamArr-Pro/
 ├── cmd/                    # Application entrypoints
 │   ├── server/             # Main server
 │   ├── worker/             # Background worker
@@ -448,5 +448,5 @@ StreamArr Pro is a self-hosted media organizer for **personal, lawful use only**
 ---
 
 <p align="center">
-  Made with ❤️ by <a href="https://github.com/Zerr0-C00L">Zerr0-C00L</a>
+  Made with ❤️ by <a href="https://github.com/ZeroQ-bit">ZeroQ</a>
 </p>
