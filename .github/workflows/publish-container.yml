@@ -17,9 +17,14 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: publish-container-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout code
@@ -75,6 +80,10 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: ${{ steps.vars.outputs.tags }}
           labels: |
             org.opencontainers.image.title=StreamArr Pro

@@ -1,4 +1,5 @@
-# Git (keep .git directory for version info in build)
+# Git
+.git
 .gitignore
 
 # IDE
@@ -10,6 +11,12 @@
 # Build artifacts
 bin/
 *.exe
+server
+worker
+migrate
+dist/
+release/
+release-arm64/
 
 # Logs and cache
 logs/
@@ -25,6 +32,9 @@ sessions/
 
 # Node modules (rebuilt in Docker)
 streamarr-pro-ui/node_modules/
+**/node_modules/
+streamarr-pro-ui/dist/
+.npm/
 
 # Test files
 *_test.go
@@ -43,3 +53,4 @@ archive/
 playlist.m3u8
 playlist.json
 tv_playlist.json
+*.out
