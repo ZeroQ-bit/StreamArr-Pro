@@ -1637,10 +1637,13 @@ export default function Settings() {
                     Stremio Addon (Built-in)
                   </h3>
                   <p className="text-sm text-slate-300">
-                    Enable the built-in Stremio addon to stream your library directly in Stremio. Configure which catalogs to show and customize their names.
+                    Enable the built-in Stremio addon to open your StreamArr library directly inside Stremio. Configure which catalogs to show and customize their names.
                   </p>
                   <p className="text-sm text-yellow-400 mt-2">
                     💡 Installation: In Stremio go to Add-ons → Community → Add-on Repository → Install from URL, then paste the Manifest URL from this page.
+                  </p>
+                  <p className="text-xs text-slate-400 mt-2">
+                    This built-in addon does not fetch torrent streams by itself. Stream discovery is configured below in <strong>Provider Addons</strong>.
                   </p>
                 </div>
 
@@ -1818,12 +1821,12 @@ export default function Settings() {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-medium text-white mb-1">🎬 Stremio Addons</h3>
-                    <p className="text-sm text-slate-400">Manage Stremio addons to fetch streams. You can add any standard Stremio addon.</p>
+                    <h3 className="text-lg font-medium text-white mb-1">🎬 Provider Addons</h3>
+                    <p className="text-sm text-slate-400">These addons are what StreamArr uses to find streams. You can add any standard Stremio-compatible provider addon here.</p>
                   </div>
                   <button
                     onClick={() => {
-                      const newAddon = { name: 'New Addon', url: 'https://addon.example.com', enabled: false };
+                      const newAddon = { name: 'New Addon', url: 'https://addon.example.com/manifest.json', enabled: true };
                       const currentAddons = settings?.stremio_addons || [];
                       updateSetting('stremio_addons', [...currentAddons, newAddon]);
                     }}
@@ -1843,7 +1846,8 @@ export default function Settings() {
                     <li>Copy the <strong>configured URL</strong> - it contains your settings encoded in it</li>
                     <li>Remove <code className="bg-slate-700/50 px-1 rounded">stremio://</code> prefix if present, use <code className="bg-slate-700/50 px-1 rounded">https://</code></li>
                     <li>Addons are tried <strong>in order</strong> - drag to reorder priority (first addon is tried first)</li>
-                    <li><strong>Restart server</strong> after adding/changing addons for changes to take effect</li>
+                    <li>Changes apply after you click <strong>Save Settings</strong> on current builds; no restart required</li>
+                    <li>If you leave this list empty but configure Real-Debrid, StreamArr will auto-bootstrap default providers for you</li>
                   </ul>
                   <div className="mt-3 text-xs text-slate-500">
                     <span className="font-medium">Popular addons:</span> Torrentio, MediaFusion, Autostream, Sootio, Stremthru

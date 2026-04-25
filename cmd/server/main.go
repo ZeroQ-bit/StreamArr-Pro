@@ -405,8 +405,8 @@ func main() {
 
 	// Initialize Xtream Codes API handler
 	// Convert config.StremioAddon to providers.StremioAddon
-	stremioAddons := make([]providers.StremioAddon, len(cfg.StremioAddons))
-	for i, addon := range cfg.StremioAddons {
+	stremioAddons := make([]providers.StremioAddon, len(currentSettings.StremioAddons))
+	for i, addon := range currentSettings.StremioAddons {
 		stremioAddons[i] = providers.StremioAddon{
 			Name:    addon.Name,
 			URL:     addon.URL,
@@ -421,8 +421,16 @@ func main() {
 		log.Printf("✓ Proxy rotation enabled with %d proxies", len(proxies))
 	}
 
+	runtimeAddons := providers.BuildRuntimeAddons(
+		stremioAddons,
+		currentSettings.UseRealDebrid,
+		cfg.RealDebridAPIKey,
+		currentSettings.CometEnabled,
+		currentSettings.CometURL,
+	)
+
 	// Create MultiProvider
-	multiProvider := providers.NewMultiProviderWithConfig(cfg.RealDebridAPIKey, stremioAddons, tmdbClient, proxies)
+	multiProvider := providers.NewMultiProviderWithConfig(cfg.RealDebridAPIKey, runtimeAddons, tmdbClient, proxies)
 	log.Printf("✓ Stream providers enabled: %v", multiProvider.ProviderNames)
 
 	// Phase 1: Initialize stream checker with provider integration
@@ -502,8 +510,8 @@ func main() {
 	xtreamHandler.SetSettingsGetter(func() interface{} {
 		s := settingsManager.Get()
 		return map[string]interface{}{
-			"only_cached_streams":    s.OnlyCachedStreams,
-			"only_released_content":  s.OnlyReleasedContent,
+			"only_cached_streams":   s.OnlyCachedStreams,
+			"only_released_content": s.OnlyReleasedContent,
 		}
 	})
 

@@ -56,67 +56,66 @@ type Settings struct {
 	// Database Configuration (required, set via DATABASE_URL env var as fallback)
 	DatabaseURL string `json:"database_url"`
 	RedisURL    string `json:"redis_url"`
-	
+
 	// API Keys
 	TMDBAPIKey       string `json:"tmdb_api_key"`
 	RealDebridAPIKey string `json:"realdebrid_api_key"`
 	PremiumizeAPIKey string `json:"premiumize_api_key"`
 	MDBListAPIKey    string `json:"mdblist_api_key"`
 	MDBListLists     string `json:"mdblist_lists"`
-	
+
 	// Service URLs
-	CometURL       string `json:"comet_url"`
-	
+	CometURL string `json:"comet_url"`
+
 	// Quality Settings
-	MaxResolution         int    `json:"max_resolution"`
-	MaxFileSize           int    `json:"max_file_size"`
-	EnableQualityVariants bool   `json:"enable_quality_variants"`
-	ShowFullStreamName    bool   `json:"show_full_stream_name"`
-	AutoAddCollections    bool   `json:"auto_add_collections"` // Automatically add entire collection when adding a movie
-	
+	MaxResolution         int  `json:"max_resolution"`
+	MaxFileSize           int  `json:"max_file_size"`
+	EnableQualityVariants bool `json:"enable_quality_variants"`
+	ShowFullStreamName    bool `json:"show_full_stream_name"`
+	AutoAddCollections    bool `json:"auto_add_collections"` // Automatically add entire collection when adding a movie
+
 	// Playlist Settings
-	TotalPages             int    `json:"total_pages"`
-	MinYear                int    `json:"min_year"`
-	MinRuntime             int    `json:"min_runtime"`
-	Language               string `json:"language"`
-	SeriesOriginCountry    string `json:"series_origin_country"`
-	MoviesOriginCountry    string `json:"movies_origin_country"`
-	UserCreatePlaylist     bool   `json:"user_create_playlist"`
-	IncludeAdultVOD        bool   `json:"include_adult_vod"`
-	IncludeLiveTV          bool   `json:"include_live_tv"`
-	IPTVImportMode         string `json:"iptv_import_mode"`
-	IPTVVODSyncIntervalHours int  `json:"iptv_vod_sync_interval_hours"`
-	DuplicateVODPerProvider bool  `json:"duplicate_vod_per_provider"`
-	IPTVVODFastImport      bool   `json:"iptv_vod_fast_import"` // If true, import VOD without TMDB lookups (basic metadata only)
-	AutoCacheIntervalHours int    `json:"auto_cache_interval_hours"`
-	ImportAdultVODFromGitHub bool `json:"import_adult_vod_from_github"` // Import adult VOD content from public-files repo
-	OnlyCachedStreams      bool   `json:"only_cached_streams"` // Only include media with cached streams in Stream Cache Monitor
-	OnlyReleasedContent    bool   `json:"only_released_content"` // Only include released content in IPTV playlist
+	TotalPages               int    `json:"total_pages"`
+	MinYear                  int    `json:"min_year"`
+	MinRuntime               int    `json:"min_runtime"`
+	Language                 string `json:"language"`
+	SeriesOriginCountry      string `json:"series_origin_country"`
+	MoviesOriginCountry      string `json:"movies_origin_country"`
+	UserCreatePlaylist       bool   `json:"user_create_playlist"`
+	IncludeAdultVOD          bool   `json:"include_adult_vod"`
+	IncludeLiveTV            bool   `json:"include_live_tv"`
+	IPTVImportMode           string `json:"iptv_import_mode"`
+	IPTVVODSyncIntervalHours int    `json:"iptv_vod_sync_interval_hours"`
+	DuplicateVODPerProvider  bool   `json:"duplicate_vod_per_provider"`
+	IPTVVODFastImport        bool   `json:"iptv_vod_fast_import"` // If true, import VOD without TMDB lookups (basic metadata only)
+	AutoCacheIntervalHours   int    `json:"auto_cache_interval_hours"`
+	ImportAdultVODFromGitHub bool   `json:"import_adult_vod_from_github"` // Import adult VOD content from public-files repo
+	OnlyCachedStreams        bool   `json:"only_cached_streams"`          // Only include media with cached streams in Stream Cache Monitor
+	OnlyReleasedContent      bool   `json:"only_released_content"`        // Only include released content in IPTV playlist
 
 	// Content Filters
-	BlockBollywood        bool   `json:"block_bollywood"` // Block Indian-origin (Bollywood) media from import and playlists
+	BlockBollywood bool `json:"block_bollywood"` // Block Indian-origin (Bollywood) media from import and playlists
 	// Balkan VOD Settings (GitHub Repos: Balkan-On-Demand + DomaciFlix)
-	BalkanVODEnabled              bool     `json:"balkan_vod_enabled"`              // Enable Balkan VOD import from GitHub
-	BalkanVODAutoSync             bool     `json:"balkan_vod_auto_sync"`            // Automatically sync new content
-	BalkanVODSyncIntervalHours    int      `json:"balkan_vod_sync_interval_hours"`  // Sync interval (default: 24 hours)
-	BalkanVODSelectedCategories   []string `json:"balkan_vod_selected_categories"`  // Selected categories (empty = all)
-	
+	BalkanVODEnabled            bool     `json:"balkan_vod_enabled"`             // Enable Balkan VOD import from GitHub
+	BalkanVODAutoSync           bool     `json:"balkan_vod_auto_sync"`           // Automatically sync new content
+	BalkanVODSyncIntervalHours  int      `json:"balkan_vod_sync_interval_hours"` // Sync interval (default: 24 hours)
+	BalkanVODSelectedCategories []string `json:"balkan_vod_selected_categories"` // Selected categories (empty = all)
+
 	// Live TV / M3U Sources
-	M3USources            []M3USource    `json:"m3u_sources"`
-	XtreamSources         []XtreamSource `json:"xtream_sources"`
-	LiveTVEnabledSources  []string    `json:"livetv_enabled_sources"`   // Which sources are enabled
-	LiveTVEnabledCategories []string  `json:"livetv_enabled_categories"` // Which categories are enabled
-	LiveTVShowAllSources  bool        `json:"livetv_show_all_sources"`   // Show all sources by default
-	LiveTVShowAllCategories bool      `json:"livetv_show_all_categories"` // Show all categories by default
-	LiveTVEnablePlutoTV   bool        `json:"livetv_enable_plutotv"`     // Enable built-in Pluto TV channels
-	LiveTVValidateStreams bool        `json:"livetv_validate_streams"`   // Validate stream URLs before loading channels
-	
-	
+	M3USources              []M3USource    `json:"m3u_sources"`
+	XtreamSources           []XtreamSource `json:"xtream_sources"`
+	LiveTVEnabledSources    []string       `json:"livetv_enabled_sources"`     // Which sources are enabled
+	LiveTVEnabledCategories []string       `json:"livetv_enabled_categories"`  // Which categories are enabled
+	LiveTVShowAllSources    bool           `json:"livetv_show_all_sources"`    // Show all sources by default
+	LiveTVShowAllCategories bool           `json:"livetv_show_all_categories"` // Show all categories by default
+	LiveTVEnablePlutoTV     bool           `json:"livetv_enable_plutotv"`      // Enable built-in Pluto TV channels
+	LiveTVValidateStreams   bool           `json:"livetv_validate_streams"`    // Validate stream URLs before loading channels
+
 	// Provider Settings
-	UseRealDebrid      bool            `json:"use_realdebrid"`
-	UsePremiumize      bool            `json:"use_premiumize"`
-	StremioAddons      []StremioAddon  `json:"stremio_addons"` // Custom Stremio addons for content providers
-	
+	UseRealDebrid bool           `json:"use_realdebrid"`
+	UsePremiumize bool           `json:"use_premiumize"`
+	StremioAddons []StremioAddon `json:"stremio_addons"` // Custom Stremio addons for content providers
+
 	// Comet Provider Settings
 	CometEnabled           bool   `json:"comet_enabled"`            // Enable Comet torrent provider
 	CometIndexers          string `json:"comet_indexers"`           // Comma-separated list of indexers
@@ -126,53 +125,53 @@ type Settings struct {
 	CometExcludedQualities string `json:"comet_excluded_qualities"` // Comma-separated quality exclusions
 	CometPriorityLanguages string `json:"comet_priority_languages"` // Comma-separated priority languages
 	CometMaxSize           string `json:"comet_max_size"`           // Max file size (e.g., "10GB" or "10GB,2GB")
-	
+
 	// Built-in Stremio Addon Settings
-	StremioAddon       StremioAddonConfig `json:"stremio_addon"`
-	
+	StremioAddon StremioAddonConfig `json:"stremio_addon"`
+
 	// Proxy Settings
 	HTTPProxy    string   `json:"http_proxy"`
 	HTTPProxies  []string `json:"http_proxies"` // Array of proxy URLs for rotation/fallback
 	UseHTTPProxy bool     `json:"use_http_proxy"`
-	
+
 	// HeadlessVidX Settings
 	HeadlessVidXAddress    string `json:"headless_vidx_address"`
 	HeadlessVidXMaxThreads int    `json:"headless_vidx_max_threads"`
-	
+
 	// Notification Settings
 	EnableNotifications bool   `json:"enable_notifications"`
 	DiscordWebhookURL   string `json:"discord_webhook_url"`
 	TelegramBotToken    string `json:"telegram_bot_token"`
 	TelegramChatID      string `json:"telegram_chat_id"`
-	
+
 	// Stream Availability Settings
 	HideUnavailableContent bool `json:"hide_unavailable_content"` // Don't show movies/episodes with no streams
-	
+
 	// Stream Sorting and Filter Settings
-	ExcludedReleaseGroups  string `json:"excluded_release_groups"`  // Comma-separated release group exclusions
-	ExcludedLanguageTags   string `json:"excluded_language_tags"`   // Comma-separated language exclusions
-	ExcludedQualities      string `json:"excluded_qualities"`       // Comma-separated quality exclusions
-	CustomExcludePatterns  string `json:"custom_exclude_patterns"`  // Custom regex patterns for exclusion
-	EnableReleaseFilters   bool   `json:"enable_release_filters"`   // Enable release filtering
-	StreamSortOrder        string `json:"stream_sort_order"`        // Sort order: "quality,size,seeders" etc
-	StreamSortPrefer       string `json:"stream_sort_prefer"`       // Preference: "best", "smallest", "balanced"
-	
+	ExcludedReleaseGroups string `json:"excluded_release_groups"` // Comma-separated release group exclusions
+	ExcludedLanguageTags  string `json:"excluded_language_tags"`  // Comma-separated language exclusions
+	ExcludedQualities     string `json:"excluded_qualities"`      // Comma-separated quality exclusions
+	CustomExcludePatterns string `json:"custom_exclude_patterns"` // Custom regex patterns for exclusion
+	EnableReleaseFilters  bool   `json:"enable_release_filters"`  // Enable release filtering
+	StreamSortOrder       string `json:"stream_sort_order"`       // Sort order: "quality,size,seeders" etc
+	StreamSortPrefer      string `json:"stream_sort_prefer"`      // Preference: "best", "smallest", "balanced"
+
 	// Stream Checker (Phase 1 Cache) Settings
 	CacheCheckIntervalMinutes int  `json:"cache_check_interval_minutes"` // How often to check cached streams (default: 60)
 	CacheCheckBatchSize       int  `json:"cache_check_batch_size"`       // How many streams to check per batch (default: 50)
 	CacheAutoUpgrade          bool `json:"cache_auto_upgrade"`           // Automatically upgrade to better quality (default: true)
 	CacheMinUpgradePoints     int  `json:"cache_min_upgrade_points"`     // Minimum quality improvement required (default: 15)
 	CacheMaxUpgradeSizeGB     int  `json:"cache_max_upgrade_size_gb"`    // Max size increase for upgrades in GB (default: 20)
-	
+
 	// Update Settings
 	UpdateBranch string `json:"update_branch"` // GitHub branch for updates: main, dev, etc.
-	
+
 	// System Settings
 	Debug       bool   `json:"debug"`
 	ServerPort  int    `json:"server_port"`
 	Host        string `json:"host"`
 	UserSetHost string `json:"user_set_host"` // Manual public IP/domain for IPTV connection details
-	
+
 	// Xtream API Credentials (separate from web app login)
 	XtreamUsername string `json:"xtream_username"`
 	XtreamPassword string `json:"xtream_password"`
@@ -182,7 +181,7 @@ type Manager struct {
 	db       *sql.DB
 	settings *Settings
 	mu       sync.RWMutex
-	
+
 	// Callbacks for when settings change
 	onBalkanVODDisabled func() error // Called when Balkan VOD is disabled
 }
@@ -204,48 +203,48 @@ func (m *Manager) SetOnBalkanVODDisabledCallback(fn func() error) {
 func getDefaultSettings() *Settings {
 	return &Settings{
 		// Database defaults (can be overridden by environment variables for initial setup)
-		DatabaseURL:            "postgres://streamarr:streamarr_password@localhost:5432/streamarr?sslmode=disable",
-		RedisURL:               "redis://localhost:6379/0",
-		
+		DatabaseURL: "postgres://streamarr:streamarr_password@localhost:5432/streamarr?sslmode=disable",
+		RedisURL:    "redis://localhost:6379/0",
+
 		// Service URLs
-		CometURL:               "https://comet.elfhosted.com",
-		
+		CometURL: "https://comet.elfhosted.com",
+
 		// Quality defaults
-		MaxResolution:          2160,
-		MaxFileSize:            50000,
-		EnableQualityVariants:  false,
-		ShowFullStreamName:     false,
-		TotalPages:             5,
-		MinYear:                1970,
-		MinRuntime:             30,
-		Language:               "en-US",
-		SeriesOriginCountry:    "US",
-		MoviesOriginCountry:    "US",
-		UserCreatePlaylist:     true,
-		IncludeAdultVOD:        false,
-		IPTVImportMode:         "live_only",
+		MaxResolution:            2160,
+		MaxFileSize:              50000,
+		EnableQualityVariants:    false,
+		ShowFullStreamName:       false,
+		TotalPages:               5,
+		MinYear:                  1970,
+		MinRuntime:               30,
+		Language:                 "en-US",
+		SeriesOriginCountry:      "US",
+		MoviesOriginCountry:      "US",
+		UserCreatePlaylist:       true,
+		IncludeAdultVOD:          false,
+		IPTVImportMode:           "live_only",
 		IPTVVODSyncIntervalHours: 6,
-		DuplicateVODPerProvider: false,
-		IPTVVODFastImport:      false,
+		DuplicateVODPerProvider:  false,
+		IPTVVODFastImport:        false,
 		ImportAdultVODFromGitHub: false,
 		// Content Filters
-		BlockBollywood:        false,
-		BalkanVODEnabled:             false,    // Disabled by default - users need to enable
-		BalkanVODAutoSync:            true,     // Auto-sync when enabled
-		BalkanVODSyncIntervalHours:   24,       // Check for updates daily
-		BalkanVODSelectedCategories:  []string{}, // Empty = import all categories
-		AutoCacheIntervalHours: 6,
-		UseRealDebrid:          true,
-		UsePremiumize:          false,
-		CometEnabled:           true,
-		CometIndexers:          "bitorrent,therarbg,yts,eztv,thepiratebay",
-		CometOnlyShowCached:    true,  // Default to only cached for faster playback
-		CometMaxResults:        5,     // Default to 5 results per quality
-		CometSortBy:            "quality", // Default sorting by quality then seeders
-		CometExcludedQualities: "",    // No exclusions by default
-		CometPriorityLanguages: "",    // No priority languages by default
-		CometMaxSize:           "",    // No size limit by default
-		StremioAddons:          []StremioAddon{}, // Empty by default - users should configure their own addons
+		BlockBollywood:              false,
+		BalkanVODEnabled:            false,      // Disabled by default - users need to enable
+		BalkanVODAutoSync:           true,       // Auto-sync when enabled
+		BalkanVODSyncIntervalHours:  24,         // Check for updates daily
+		BalkanVODSelectedCategories: []string{}, // Empty = import all categories
+		AutoCacheIntervalHours:      6,
+		UseRealDebrid:               true,
+		UsePremiumize:               false,
+		CometEnabled:                true,
+		CometIndexers:               "bitorrent,therarbg,yts,eztv,thepiratebay",
+		CometOnlyShowCached:         true,             // Default to only cached for faster playback
+		CometMaxResults:             5,                // Default to 5 results per quality
+		CometSortBy:                 "quality",        // Default sorting by quality then seeders
+		CometExcludedQualities:      "",               // No exclusions by default
+		CometPriorityLanguages:      "",               // No priority languages by default
+		CometMaxSize:                "",               // No size limit by default
+		StremioAddons:               []StremioAddon{}, // Empty by default - users should configure their own addons
 		StremioAddon: StremioAddonConfig{
 			Enabled:         true, // Enabled by default for built-in addon
 			PublicServerURL: "",
@@ -278,13 +277,13 @@ func getDefaultSettings() *Settings {
 		XtreamUsername:         "streamarr",
 		XtreamPassword:         "streamarr",
 		// Stream sorting and filters
-		EnableReleaseFilters:   true,  // Default to enabled
-		StreamSortOrder:        "quality,size,seeders",
-		StreamSortPrefer:       "best",
-		ExcludedReleaseGroups:  "",
-		ExcludedLanguageTags:   "",
-		ExcludedQualities:      "",
-		CustomExcludePatterns:  "",
+		EnableReleaseFilters:  true, // Default to enabled
+		StreamSortOrder:       "quality,size,seeders",
+		StreamSortPrefer:      "best",
+		ExcludedReleaseGroups: "",
+		ExcludedLanguageTags:  "",
+		ExcludedQualities:     "",
+		CustomExcludePatterns: "",
 		// Stream Checker (Phase 1 Cache) defaults
 		CacheCheckIntervalMinutes: 60,   // Check every hour
 		CacheCheckBatchSize:       50,   // Check 50 streams per batch
@@ -297,7 +296,7 @@ func getDefaultSettings() *Settings {
 func (m *Manager) Load() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Try to load from database
 	var settingsJSON string
 	err := m.db.QueryRow("SELECT value FROM settings WHERE key = 'app_settings'").Scan(&settingsJSON)
@@ -307,87 +306,108 @@ func (m *Manager) Load() error {
 	} else if err != nil {
 		return fmt.Errorf("load settings: %w", err)
 	}
-	
+
 	// Start with defaults to ensure all fields have proper default values
 	// This prevents fields missing from JSON from being left uninitialized
 	m.settings = getDefaultSettings()
-	
+
 	// Unmarshal JSON over the defaults, overriding only fields present in JSON
 	if err := json.Unmarshal([]byte(settingsJSON), m.settings); err != nil {
 		return fmt.Errorf("parse settings: %w", err)
 	}
-	
+	if err := applyLegacySettingAliases([]byte(settingsJSON), m.settings); err != nil {
+		return fmt.Errorf("parse legacy settings: %w", err)
+	}
+
 	// Also load Xtream credentials from individual keys if they exist (for backward compatibility)
 	var xtreamUsername, xtreamPassword string
 	err = m.db.QueryRow("SELECT value FROM settings WHERE key = 'xtream_username'").Scan(&xtreamUsername)
 	if err == nil && xtreamUsername != "" {
 		m.settings.XtreamUsername = xtreamUsername
 	}
-	
+
 	err = m.db.QueryRow("SELECT value FROM settings WHERE key = 'xtream_password'").Scan(&xtreamPassword)
 	if err == nil && xtreamPassword != "" {
 		m.settings.XtreamPassword = xtreamPassword
 	}
-	
+
 	// Load OnlyCachedStreams from individual key if it exists
 	var onlyCachedStr string
 	err = m.db.QueryRow("SELECT value FROM settings WHERE key = 'only_cached_streams'").Scan(&onlyCachedStr)
 	if err == nil && onlyCachedStr != "" {
 		m.settings.OnlyCachedStreams = onlyCachedStr == "true"
 	}
-	
+
+	return nil
+}
+
+func applyLegacySettingAliases(raw []byte, settings *Settings) error {
+	var settingsMap map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &settingsMap); err != nil {
+		return err
+	}
+
+	if settings.RealDebridAPIKey == "" {
+		if value, ok := settingsMap["realdebrid_token"]; ok {
+			var legacyKey string
+			if err := json.Unmarshal(value, &legacyKey); err == nil {
+				settings.RealDebridAPIKey = legacyKey
+			}
+		}
+	}
+
 	return nil
 }
 
 func (m *Manager) Get() *Settings {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	// Return a copy
 	settingsCopy := *m.settings
-	
+
 	// Reload OnlyCachedStreams from database since it can change dynamically
 	var onlyCachedStr string
 	err := m.db.QueryRow("SELECT value FROM settings WHERE key = 'only_cached_streams'").Scan(&onlyCachedStr)
 	if err == nil && onlyCachedStr != "" {
 		settingsCopy.OnlyCachedStreams = onlyCachedStr == "true"
 	}
-	
+
 	return &settingsCopy
 }
 
 func (m *Manager) Update(newSettings *Settings) error {
 	m.mu.Lock()
-	
+
 	// Check if Balkan VOD is being disabled
 	isDisablingBalkan := false
 	if m.settings.BalkanVODEnabled && !newSettings.BalkanVODEnabled {
 		isDisablingBalkan = true
 	}
-	
+
 	m.settings = newSettings
 	if err := m.saveToDBLocked(); err != nil {
 		m.mu.Unlock()
 		return err
 	}
-	
+
 	// Save callback reference before unlocking
 	callback := m.onBalkanVODDisabled
 	m.mu.Unlock()
-	
+
 	// Call cleanup callback if Balkan VOD was disabled
 	if isDisablingBalkan && callback != nil {
 		if err := callback(); err != nil {
 			return fmt.Errorf("failed to cleanup Balkan VOD content: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
 func (m *Manager) UpdatePartial(updates map[string]interface{}) error {
 	m.mu.Lock()
-	
+
 	// Check if Balkan VOD is being disabled
 	isDisablingBalkan := false
 	if balkanEnabled, ok := updates["balkan_vod_enabled"]; ok {
@@ -398,53 +418,53 @@ func (m *Manager) UpdatePartial(updates map[string]interface{}) error {
 			}
 		}
 	}
-	
+
 	// Convert current settings to map
 	settingsJSON, err := json.Marshal(m.settings)
 	if err != nil {
 		m.mu.Unlock()
 		return err
 	}
-	
+
 	var settingsMap map[string]interface{}
 	if err := json.Unmarshal(settingsJSON, &settingsMap); err != nil {
 		m.mu.Unlock()
 		return err
 	}
-	
+
 	// Apply updates
 	for key, value := range updates {
 		settingsMap[key] = value
 	}
-	
+
 	// Convert back to struct
 	updatedJSON, err := json.Marshal(settingsMap)
 	if err != nil {
 		m.mu.Unlock()
 		return err
 	}
-	
+
 	if err := json.Unmarshal(updatedJSON, m.settings); err != nil {
 		m.mu.Unlock()
 		return err
 	}
-	
+
 	if err := m.saveToDBLocked(); err != nil {
 		m.mu.Unlock()
 		return err
 	}
-	
+
 	// Save callback reference before unlocking
 	callback := m.onBalkanVODDisabled
 	m.mu.Unlock()
-	
+
 	// Call cleanup callback if Balkan VOD was disabled
 	if isDisablingBalkan && callback != nil {
 		if err := callback(); err != nil {
 			return fmt.Errorf("failed to cleanup Balkan VOD content: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -453,7 +473,7 @@ func (m *Manager) saveToDBLocked() error {
 	if err != nil {
 		return fmt.Errorf("marshal settings: %w", err)
 	}
-	
+
 	// Save main settings as JSON
 	_, err = m.db.Exec(`
 		INSERT INTO settings (key, value, updated_at)
@@ -463,7 +483,7 @@ func (m *Manager) saveToDBLocked() error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Also save Xtream credentials as individual keys for backward compatibility
 	// (the Xtream handler reads these directly from the database)
 	_, err = m.db.Exec(`
@@ -474,7 +494,7 @@ func (m *Manager) saveToDBLocked() error {
 	if err != nil {
 		return fmt.Errorf("save xtream_username: %w", err)
 	}
-	
+
 	_, err = m.db.Exec(`
 		INSERT INTO settings (key, value, type, updated_at)
 		VALUES ('xtream_password', $1, 'string', NOW())
@@ -483,7 +503,7 @@ func (m *Manager) saveToDBLocked() error {
 	if err != nil {
 		return fmt.Errorf("save xtream_password: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -497,7 +517,7 @@ func (m *Manager) GetMaxResolution() int {
 func (m *Manager) GetStremioAddons() []StremioAddon {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	addons := make([]StremioAddon, len(m.settings.StremioAddons))
 	copy(addons, m.settings.StremioAddons)
 	return addons
@@ -600,39 +620,40 @@ func (m *Manager) IsDebugEnabled() bool {
 func (m *Manager) GetAll() (map[string]interface{}, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	return map[string]interface{}{
-		"tmdb_api_key":                 m.settings.TMDBAPIKey,
-		"realdebrid_token":             m.settings.RealDebridAPIKey,
-		"premiumize_api_key":           m.settings.PremiumizeAPIKey,
-		"mdblist_api_key":              m.settings.MDBListAPIKey,
-		"use_realdebrid":               m.settings.UseRealDebrid,
-		"use_premiumize":               m.settings.UsePremiumize,
-		"comet_enabled":                m.settings.CometEnabled,
-		"comet_indexers":               m.settings.CometIndexers,
-		"comet_only_show_cached":       m.settings.CometOnlyShowCached,
-		"comet_max_results":            m.settings.CometMaxResults,
-		"comet_sort_by":                m.settings.CometSortBy,
-		"comet_excluded_qualities":     m.settings.CometExcludedQualities,
-		"comet_priority_languages":     m.settings.CometPriorityLanguages,
-		"comet_max_size":               m.settings.CometMaxSize,
-		"total_pages":                  m.settings.TotalPages,
-		"max_resolution":               m.settings.MaxResolution,
-		"auto_cache_interval_hours":    m.settings.AutoCacheIntervalHours,
-		"user_create_playlist":         m.settings.UserCreatePlaylist,
-		"include_adult_vod":            m.settings.IncludeAdultVOD,
-		"block_bollywood":              m.settings.BlockBollywood,
-		"debug":                        m.settings.Debug,
-		"language":                     m.settings.Language,
-		"series_origin_country":        m.settings.SeriesOriginCountry,
-		"movies_origin_country":        m.settings.MoviesOriginCountry,
-		"stremio_addons":               m.settings.StremioAddons,
-		"server_port":                  m.settings.ServerPort,
-		"host":                         m.settings.Host,
-		"enable_notifications":         m.settings.EnableNotifications,
-		"discord_webhook_url":          m.settings.DiscordWebhookURL,
-		"telegram_bot_token":           m.settings.TelegramBotToken,
-		"telegram_chat_id":             m.settings.TelegramChatID,
+		"tmdb_api_key":              m.settings.TMDBAPIKey,
+		"realdebrid_api_key":        m.settings.RealDebridAPIKey,
+		"realdebrid_token":          m.settings.RealDebridAPIKey,
+		"premiumize_api_key":        m.settings.PremiumizeAPIKey,
+		"mdblist_api_key":           m.settings.MDBListAPIKey,
+		"use_realdebrid":            m.settings.UseRealDebrid,
+		"use_premiumize":            m.settings.UsePremiumize,
+		"comet_enabled":             m.settings.CometEnabled,
+		"comet_indexers":            m.settings.CometIndexers,
+		"comet_only_show_cached":    m.settings.CometOnlyShowCached,
+		"comet_max_results":         m.settings.CometMaxResults,
+		"comet_sort_by":             m.settings.CometSortBy,
+		"comet_excluded_qualities":  m.settings.CometExcludedQualities,
+		"comet_priority_languages":  m.settings.CometPriorityLanguages,
+		"comet_max_size":            m.settings.CometMaxSize,
+		"total_pages":               m.settings.TotalPages,
+		"max_resolution":            m.settings.MaxResolution,
+		"auto_cache_interval_hours": m.settings.AutoCacheIntervalHours,
+		"user_create_playlist":      m.settings.UserCreatePlaylist,
+		"include_adult_vod":         m.settings.IncludeAdultVOD,
+		"block_bollywood":           m.settings.BlockBollywood,
+		"debug":                     m.settings.Debug,
+		"language":                  m.settings.Language,
+		"series_origin_country":     m.settings.SeriesOriginCountry,
+		"movies_origin_country":     m.settings.MoviesOriginCountry,
+		"stremio_addons":            m.settings.StremioAddons,
+		"server_port":               m.settings.ServerPort,
+		"host":                      m.settings.Host,
+		"enable_notifications":      m.settings.EnableNotifications,
+		"discord_webhook_url":       m.settings.DiscordWebhookURL,
+		"telegram_bot_token":        m.settings.TelegramBotToken,
+		"telegram_chat_id":          m.settings.TelegramChatID,
 	}, nil
 }
 
@@ -640,10 +661,13 @@ func (m *Manager) GetAll() (map[string]interface{}, error) {
 func (m *Manager) SetAll(updates map[string]interface{}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Update settings fields from map
 	if v, ok := updates["tmdb_api_key"].(string); ok {
 		m.settings.TMDBAPIKey = v
+	}
+	if v, ok := updates["realdebrid_api_key"].(string); ok {
+		m.settings.RealDebridAPIKey = v
 	}
 	if v, ok := updates["realdebrid_token"].(string); ok {
 		m.settings.RealDebridAPIKey = v
@@ -752,6 +776,6 @@ func (m *Manager) SetAll(updates map[string]interface{}) error {
 	if v, ok := updates["telegram_chat_id"].(string); ok {
 		m.settings.TelegramChatID = v
 	}
-	
+
 	return m.saveToDBLocked()
 }

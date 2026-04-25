@@ -99,9 +99,17 @@ func (h *Handler) refreshRuntimeClients(cfg *settings.Settings) {
 		proxies = cfg.HTTPProxies
 	}
 
+	runtimeAddons := providers.BuildRuntimeAddons(
+		toProviderAddons(cfg.StremioAddons),
+		cfg.UseRealDebrid,
+		cfg.RealDebridAPIKey,
+		cfg.CometEnabled,
+		cfg.CometURL,
+	)
+
 	h.streamProvider = providers.NewMultiProviderWithConfig(
 		cfg.RealDebridAPIKey,
-		toProviderAddons(cfg.StremioAddons),
+		runtimeAddons,
 		h.tmdbClient,
 		proxies,
 	)
@@ -2489,7 +2497,20 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("[Settings] UpdateSettings: StremioAddon.Enabled=%v", newSettings.StremioAddon.Enabled)
+		enabledProviderAddons := 0
+		for _, addon := range newSettings.StremioAddons {
+			if addon.Enabled && strings.TrimSpace(addon.URL) != "" {
+				enabledProviderAddons++
+			}
+		}
+		log.Printf(
+			"[Settings] UpdateSettings: built_in_addon=%v provider_addons=%d enabled_provider_addons=%d use_realdebrid=%v rd_key_set=%v",
+			newSettings.StremioAddon.Enabled,
+			len(newSettings.StremioAddons),
+			enabledProviderAddons,
+			newSettings.UseRealDebrid,
+			strings.TrimSpace(newSettings.RealDebridAPIKey) != "",
+		)
 
 		// Get old settings to detect changes
 		oldSettings := h.settingsManager.Get()

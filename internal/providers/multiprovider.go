@@ -3,6 +3,7 @@ package providers
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -42,13 +43,18 @@ type StreamProvider interface {
 }
 
 type MultiProvider struct {
-	Providers        []StreamProvider
-	ProviderNames    []string
+	Providers         []StreamProvider
+	ProviderNames     []string
 	dmmDirectProvider *DMMDirectProvider // Direct DMM queries
 	// Settings getters for dynamic configuration
-	getSortOrder     func() string
-	getSortPrefer    func() string
+	getSortOrder  func() string
+	getSortPrefer func() string
 }
+
+const (
+	DefaultCometAddonURL     = "https://comet.elfhosted.com"
+	DefaultTorrentioAddonURL = "https://torrentio.strem.fun"
+)
 
 // Removed Zilean-related code: provider and config
 // Removed Comet-related code: provider and config
@@ -64,23 +70,25 @@ func NewMultiProviderWithConfig(rdAPIKey string, addons []StremioAddon, tmdbClie
 		Providers:     make([]StreamProvider, 0),
 		ProviderNames: make([]string, 0),
 	}
-	
+
+	addons = normalizeEnabledAddons(addons)
+
 	// Add each enabled addon as a generic Stremio provider
 	for _, addon := range addons {
-		if !addon.Enabled {
-			continue
-		}
-		
 		provider := NewGenericStremioProvider(addon.Name, addon.URL, rdAPIKey, proxies)
 		mp.Providers = append(mp.Providers, provider)
 		mp.ProviderNames = append(mp.ProviderNames, addon.Name)
 		log.Printf("Loaded Stremio addon: %s (%s)", addon.Name, addon.URL)
 	}
 
-	// Add fallback free providers if no addons and no Real-Debrid
+	// Add fallback free providers if no provider addons are available.
 	if len(mp.Providers) == 0 {
-		log.Println("⚠️  No Stremio addons configured and no Real-Debrid - using fallback free providers")
-		
+		if strings.TrimSpace(rdAPIKey) != "" {
+			log.Println("⚠️  No enabled Stremio provider addons configured; using fallback free providers only")
+		} else {
+			log.Println("⚠️  No enabled Stremio provider addons or Real-Debrid key configured; using fallback free providers")
+		}
+
 		// Add AutoEmbed provider
 		if tmdbClient != nil {
 			autoEmbedProvider := NewAutoEmbedAdapter(tmdbClient)
@@ -88,7 +96,7 @@ func NewMultiProviderWithConfig(rdAPIKey string, addons []StremioAddon, tmdbClie
 			mp.ProviderNames = append(mp.ProviderNames, "AutoEmbed")
 			log.Println("✓ AutoEmbed fallback provider loaded")
 		}
-		
+
 		// Add VidSrc provider
 		if tmdbClient != nil {
 			vidSrcProvider := NewVidSrcAdapter(tmdbClient)
@@ -97,8 +105,90 @@ func NewMultiProviderWithConfig(rdAPIKey string, addons []StremioAddon, tmdbClie
 			log.Println("✓ VidSrc fallback provider loaded")
 		}
 	}
-	
+
 	return mp
+}
+
+// BuildRuntimeAddons normalizes the saved addon list and bootstraps sane defaults
+// for Real-Debrid-backed installs when no explicit provider addons are enabled.
+func BuildRuntimeAddons(addons []StremioAddon, useRealDebrid bool, rdAPIKey string, cometEnabled bool, cometURL string) []StremioAddon {
+	normalized := normalizeEnabledAddons(addons)
+	if len(normalized) > 0 {
+		return normalized
+	}
+
+	if !useRealDebrid || strings.TrimSpace(rdAPIKey) == "" {
+		return normalized
+	}
+
+	runtimeAddons := make([]StremioAddon, 0, 2)
+
+	if cometEnabled {
+		resolvedCometURL := strings.TrimRight(strings.TrimSpace(cometURL), "/")
+		if resolvedCometURL == "" {
+			resolvedCometURL = DefaultCometAddonURL
+		}
+		runtimeAddons = append(runtimeAddons, StremioAddon{
+			Name:    "Comet",
+			URL:     resolvedCometURL,
+			Enabled: true,
+		})
+	}
+
+	runtimeAddons = append(runtimeAddons, StremioAddon{
+		Name:    "Torrentio",
+		URL:     DefaultTorrentioAddonURL,
+		Enabled: true,
+	})
+
+	log.Printf("No enabled Stremio provider addons configured; bootstrapping defaults: %v", addonNames(runtimeAddons))
+	return runtimeAddons
+}
+
+func normalizeEnabledAddons(addons []StremioAddon) []StremioAddon {
+	normalized := make([]StremioAddon, 0, len(addons))
+	for _, addon := range addons {
+		if !addon.Enabled {
+			continue
+		}
+
+		trimmedURL := strings.TrimRight(strings.TrimSpace(addon.URL), "/")
+		if trimmedURL == "" {
+			continue
+		}
+
+		name := strings.TrimSpace(addon.Name)
+		if name == "" {
+			name = inferAddonName(trimmedURL)
+		}
+
+		normalized = append(normalized, StremioAddon{
+			Name:    name,
+			URL:     trimmedURL,
+			Enabled: true,
+		})
+	}
+
+	return normalized
+}
+
+func inferAddonName(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err == nil && parsed.Host != "" {
+		host := strings.TrimPrefix(parsed.Hostname(), "www.")
+		if host != "" {
+			return host
+		}
+	}
+	return "Custom Addon"
+}
+
+func addonNames(addons []StremioAddon) []string {
+	names := make([]string, 0, len(addons))
+	for _, addon := range addons {
+		names = append(names, addon.Name)
+	}
+	return names
 }
 
 // SetSortSettings configures the sorting behavior dynamically
@@ -129,11 +219,11 @@ func (mp *MultiProvider) GetStreams(req StreamRequest) ([]TorrentioStream, error
 	if req.Type != "movie" && req.Type != "series" {
 		return nil, fmt.Errorf("invalid type: %s, must be 'movie' or 'series'", req.Type)
 	}
-	
+
 	if req.ID == "" {
 		return nil, fmt.Errorf("ID is required")
 	}
-	
+
 	// Route to appropriate handler
 	if req.Type == "movie" {
 		return mp.GetMovieStreamsWithYear(req.ID, req.ReleaseYear)
@@ -143,7 +233,7 @@ func (mp *MultiProvider) GetStreams(req StreamRequest) ([]TorrentioStream, error
 		}
 		return mp.GetSeriesStreams(req.ID, req.Season, req.Episode)
 	}
-	
+
 	return nil, fmt.Errorf("unknown type: %s", req.Type)
 }
 
@@ -153,20 +243,20 @@ func (mp *MultiProvider) GetMovieStreamsWithYear(imdbID string, releaseYear int)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	log.Printf("[YEAR-FILTER] Retrieved %d streams for %s before year filtering (release year: %d)", len(streams), imdbID, releaseYear)
-	
+
 	// If no release year provided, return all streams
 	if releaseYear <= 0 {
 		log.Printf("[YEAR-FILTER] No release year specified, returning all %d streams", len(streams))
 		return streams, nil
 	}
-	
+
 	// Filter streams by year - only keep streams matching the release year
 	filtered := []TorrentioStream{}
 	for _, stream := range streams {
 		streamYear := extractYearFromStream(stream)
-		
+
 		// Keep stream if:
 		// - No year found in stream (could be valid)
 		// - Year matches release year
@@ -181,98 +271,98 @@ func (mp *MultiProvider) GetMovieStreamsWithYear(imdbID string, releaseYear int)
 			log.Printf("[YEAR-FILTER] ❌ Filtering out stream with mismatched year: %d != %d - %s", streamYear, releaseYear, stream.Title)
 		}
 	}
-	
+
 	log.Printf("[YEAR-FILTER] Filtered %d -> %d streams (removed %d)", len(streams), len(filtered), len(streams)-len(filtered))
-	
+
 	return filtered, nil
 }
 
 func (mp *MultiProvider) GetMovieStreams(imdbID string) ([]TorrentioStream, error) {
 	var lastErr error
 	var allStreams []TorrentioStream
-	
+
 	log.Printf("[PROVIDER] Fetching movie streams for IMDB ID: %s", imdbID)
-	
+
 	for i, provider := range mp.Providers {
 		providerName := mp.ProviderNames[i]
-		
+
 		streams, err := provider.GetMovieStreams(imdbID)
 		if err != nil {
 			log.Printf("[PROVIDER] %s failed for movie %s: %v", providerName, imdbID, err)
 			lastErr = err
 			continue
 		}
-		
+
 		log.Printf("[PROVIDER] %s returned %d streams for movie %s", providerName, len(streams), imdbID)
-		
+
 		// Filter out any episode streams that shouldn't be included in movie results
 		filteredStreams := filterMovieStreams(streams)
-		
+
 		if len(filteredStreams) < len(streams) {
-			log.Printf("[PROVIDER] %s: Filtered out %d episode-like streams (kept %d movie streams)", 
+			log.Printf("[PROVIDER] %s: Filtered out %d episode-like streams (kept %d movie streams)",
 				providerName, len(streams)-len(filteredStreams), len(filteredStreams))
 		}
-		
+
 		if len(filteredStreams) > 0 {
 			log.Printf("[PROVIDER] %s added %d valid movie streams", providerName, len(filteredStreams))
 			allStreams = append(allStreams, filteredStreams...)
 		}
 	}
-	
+
 	log.Printf("[PROVIDER] Total streams collected: %d", len(allStreams))
-	
+
 	if len(allStreams) == 0 && lastErr != nil {
 		return nil, fmt.Errorf("all providers failed, last error: %w", lastErr)
 	}
-	
+
 	return allStreams, nil
 }
 
 func (mp *MultiProvider) GetSeriesStreams(imdbID string, season, episode int) ([]TorrentioStream, error) {
 	var lastErr error
 	var allStreams []TorrentioStream
-	
+
 	for i, provider := range mp.Providers {
 		providerName := mp.ProviderNames[i]
-		
+
 		streams, err := provider.GetSeriesStreams(imdbID, season, episode)
 		if err != nil {
 			log.Printf("Provider %s failed for series %s S%02dE%02d: %v", providerName, imdbID, season, episode, err)
 			lastErr = err
 			continue
 		}
-		
+
 		if len(streams) > 0 {
 			log.Printf("Provider %s returned %d streams for series %s S%02dE%02d", providerName, len(streams), imdbID, season, episode)
 			allStreams = append(allStreams, streams...)
 		}
 	}
-	
+
 	if len(allStreams) == 0 && lastErr != nil {
 		return nil, fmt.Errorf("all providers failed, last error: %w", lastErr)
 	}
-	
+
 	return allStreams, nil
 }
 
 func (mp *MultiProvider) GetBestStream(imdbID string, season, episode *int, maxQuality int) (*TorrentioStream, error) {
 	var streams []TorrentioStream
 	var err error
-	
+
 	if season != nil && episode != nil {
 		streams, err = mp.GetSeriesStreams(imdbID, *season, *episode)
 	} else {
 		streams, err = mp.GetMovieStreams(imdbID)
 	}
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if len(streams) == 0 {
 		return nil, fmt.Errorf("no streams found")
 	}
-	
+
 	// Prioritize cached streams, then accept uncached
 	filteredStreams := make([]TorrentioStream, 0)
 	for _, s := range streams {
@@ -280,16 +370,16 @@ func (mp *MultiProvider) GetBestStream(imdbID string, season, episode *int, maxQ
 			filteredStreams = append(filteredStreams, s)
 		}
 	}
-	
+
 	if len(filteredStreams) == 0 {
 		// No cached streams, accept all uncached streams
 		filteredStreams = streams
 	}
-	
+
 	if len(filteredStreams) == 0 {
 		return nil, fmt.Errorf("no streams available after filtering")
 	}
-	
+
 	// Sort streams - get settings from user preferences or use defaults
 	sortOrder := "quality,size,seeders"
 	sortPrefer := "best"
@@ -299,21 +389,21 @@ func (mp *MultiProvider) GetBestStream(imdbID string, season, episode *int, maxQ
 	if mp.getSortPrefer != nil {
 		sortPrefer = mp.getSortPrefer()
 	}
-	
+
 	log.Printf("[SORT] Using sort order: %s, preference: %s", sortOrder, sortPrefer)
-	
+
 	// Parse sort fields
 	sortFields := strings.Split(sortOrder, ",")
-	
+
 	// Sort streams using configurable sorting
 	sortedStreams := make([]TorrentioStream, len(filteredStreams))
 	copy(sortedStreams, filteredStreams)
-	
+
 	// Sort function based on preference
 	for i := 0; i < len(sortedStreams)-1; i++ {
 		for j := i + 1; j < len(sortedStreams); j++ {
 			shouldSwap := false
-			
+
 			for _, field := range sortFields {
 				field = strings.TrimSpace(field)
 				cmp := compareStreams(sortedStreams[i], sortedStreams[j], field, sortPrefer)
@@ -325,20 +415,20 @@ func (mp *MultiProvider) GetBestStream(imdbID string, season, episode *int, maxQ
 				}
 				// cmp == 0, continue to next field
 			}
-			
+
 			if shouldSwap {
 				sortedStreams[i], sortedStreams[j] = sortedStreams[j], sortedStreams[i]
 			}
 		}
 	}
-	
+
 	if len(sortedStreams) > 0 {
 		selected := sortedStreams[0]
-		log.Printf("Selected stream: %s (Quality: %s, Size: %d MB, Seeders: %d)", 
+		log.Printf("Selected stream: %s (Quality: %s, Size: %d MB, Seeders: %d)",
 			truncateString(selected.Name, 60), selected.Quality, selected.Size/(1024*1024), selected.Seeders)
 		return &selected, nil
 	}
-	
+
 	return nil, fmt.Errorf("no streams available")
 }
 
@@ -411,7 +501,7 @@ func truncateString(s string, max int) string {
 // parseQualityInt converts a quality string to an integer value for comparison
 func parseQualityInt(quality string) int {
 	q := strings.ToUpper(quality)
-	
+
 	// Check for resolution-based quality indicators
 	if strings.Contains(q, "4K") || strings.Contains(q, "2160") {
 		return 2160
@@ -428,7 +518,7 @@ func parseQualityInt(quality string) int {
 	if strings.Contains(q, "SD") || strings.Contains(q, "360") {
 		return 360
 	}
-	
+
 	// Default to 720p if quality is unknown
 	return 720
 }
@@ -437,7 +527,7 @@ func parseQualityInt(quality string) int {
 // This prevents episode results (S01E01, S02E05, etc.) from appearing in movie stream results
 func filterMovieStreams(streams []TorrentioStream) []TorrentioStream {
 	filtered := []TorrentioStream{}
-	
+
 	for _, stream := range streams {
 		// Check if this stream looks like a TV episode
 		// Common patterns: "S01E01", "1x01", "Season 1 Episode 1", etc.
@@ -447,12 +537,12 @@ func filterMovieStreams(streams []TorrentioStream) []TorrentioStream {
 		}
 		filtered = append(filtered, stream)
 	}
-	
+
 	if len(filtered) < len(streams) {
-		log.Printf("[EPISODE-FILTER] Filtered %d -> %d streams (removed %d episode-like streams)", 
+		log.Printf("[EPISODE-FILTER] Filtered %d -> %d streams (removed %d episode-like streams)",
 			len(streams), len(filtered), len(streams)-len(filtered))
 	}
-	
+
 	return filtered
 }
 
@@ -460,22 +550,22 @@ func filterMovieStreams(streams []TorrentioStream) []TorrentioStream {
 func isEpisodeStream(stream TorrentioStream) bool {
 	// Combine all text fields to search
 	fullText := strings.ToLower(fmt.Sprintf("%s %s %s", stream.Name, stream.Title, stream.Source))
-	
+
 	// Check for season/episode patterns
 	episodePatterns := []string{
-		"s\\d+e\\d+",     // S01E01
-		"\\d+x\\d+",      // 1x01
+		"s\\d+e\\d+",      // S01E01
+		"\\d+x\\d+",       // 1x01
 		"season.*episode", // Season 1 Episode 1
-		"ep\\d+",         // EP01
-		": s\\d+:",       // : S01:
+		"ep\\d+",          // EP01
+		": s\\d+:",        // : S01:
 	}
-	
+
 	for _, pattern := range episodePatterns {
 		if matched, _ := regexp.MatchString(pattern, fullText); matched {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -483,11 +573,11 @@ func isEpisodeStream(stream TorrentioStream) bool {
 func extractYearFromStream(stream TorrentioStream) int {
 	// Search in title and name for 4-digit year
 	fullText := fmt.Sprintf("%s %s", stream.Title, stream.Name)
-	
+
 	// Look for years between 1900 and 2100
 	yearPattern := regexp.MustCompile(`\b(19|20)\d{2}\b`)
 	matches := yearPattern.FindAllString(fullText, -1)
-	
+
 	if len(matches) > 0 {
 		// Return the first year found
 		if year, err := strconv.Atoi(matches[0]); err == nil {
@@ -495,7 +585,7 @@ func extractYearFromStream(stream TorrentioStream) int {
 			return year
 		}
 	}
-	
+
 	log.Printf("[YEAR-EXTRACT] No year found in stream: %s", stream.Title)
 	return 0
 }
