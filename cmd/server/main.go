@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -31,6 +32,34 @@ import (
 	"github.com/Zerr0-C00L/StreamArr/internal/settings"
 	"github.com/Zerr0-C00L/StreamArr/internal/xtream"
 )
+
+func envInt(keys ...string) (int, bool) {
+	for _, key := range keys {
+		value := strings.TrimSpace(os.Getenv(key))
+		if value == "" {
+			continue
+		}
+
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed <= 0 {
+			log.Printf("Warning: ignoring invalid %s=%q", key, value)
+			return 0, false
+		}
+
+		return parsed, true
+	}
+
+	return 0, false
+}
+
+func applyServerListenOverrides(cfg *config.Config) {
+	cfg.ListenPort = cfg.ServerPort
+
+	if listenPort, ok := envInt("STREAMARR_LISTEN_PORT", "PORT"); ok {
+		cfg.ListenPort = listenPort
+		log.Printf("✓ Server listen port overridden by environment: %d", cfg.ListenPort)
+	}
+}
 
 func main() {
 	// Load .env file
@@ -196,6 +225,7 @@ func main() {
 		cfg.Host = appSettings.Host
 	}
 	cfg.Debug = appSettings.Debug
+	applyServerListenOverrides(cfg)
 
 	log.Println("✓ All settings loaded from database")
 
@@ -800,7 +830,7 @@ func main() {
 	// Create HTTP server with extended timeouts for stream fetching
 	// Stremio addons can take up to 120 seconds to respond
 	server := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.ServerPort),
+		Addr:         fmt.Sprintf(":%d", cfg.ListenPort),
 		Handler:      router,
 		ReadTimeout:  180 * time.Second, // 3 minutes for slow clients
 		WriteTimeout: 180 * time.Second, // 3 minutes to fetch and redirect streams
@@ -809,7 +839,7 @@ func main() {
 
 	// Start server in a goroutine
 	go func() {
-		log.Printf("Server listening on port %d", cfg.ServerPort)
+		log.Printf("Server listening on port %d", cfg.ListenPort)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed to start: %v", err)
 		}

@@ -14,6 +14,7 @@ type StremioAddon struct {
 type Config struct {
 	// Server
 	ServerPort int
+	ListenPort int
 	Host       string
 
 	// Database
@@ -80,6 +81,7 @@ func Load() *Config {
 	return &Config{
 		// Server defaults
 		ServerPort: 8080,
+		ListenPort: 8080,
 		Host:       "0.0.0.0",
 
 		// Database URL can be set via environment for initial connection
