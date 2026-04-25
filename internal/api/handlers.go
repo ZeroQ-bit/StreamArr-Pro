@@ -77,6 +77,59 @@ type Handler struct {
 	cacheScanner     *CacheScanner
 }
 
+func toProviderAddons(addons []settings.StremioAddon) []providers.StremioAddon {
+	providerAddons := make([]providers.StremioAddon, len(addons))
+	for i, addon := range addons {
+		providerAddons[i] = providers.StremioAddon{
+			Name:    addon.Name,
+			URL:     addon.URL,
+			Enabled: addon.Enabled,
+		}
+	}
+
+	return providerAddons
+}
+
+func (h *Handler) refreshRuntimeClients(cfg *settings.Settings) {
+	h.tmdbClient = services.NewTMDBClient(cfg.TMDBAPIKey)
+	h.rdClient = services.NewRealDebridClient(cfg.RealDebridAPIKey)
+
+	var proxies []string
+	if cfg.UseHTTPProxy && len(cfg.HTTPProxies) > 0 {
+		proxies = cfg.HTTPProxies
+	}
+
+	h.streamProvider = providers.NewMultiProviderWithConfig(
+		cfg.RealDebridAPIKey,
+		toProviderAddons(cfg.StremioAddons),
+		h.tmdbClient,
+		proxies,
+	)
+
+	if h.streamProvider != nil && h.settingsManager != nil {
+		h.streamProvider.SetSortSettings(
+			func() string {
+				s := h.settingsManager.Get()
+				if s.StreamSortOrder != "" {
+					return s.StreamSortOrder
+				}
+				return "quality,size,seeders"
+			},
+			func() string {
+				s := h.settingsManager.Get()
+				if s.StreamSortPrefer != "" {
+					return s.StreamSortPrefer
+				}
+				return "best"
+			},
+		)
+	}
+
+	if h.mdbSyncService != nil {
+		h.mdbSyncService.UpdateAPIKeys(cfg.MDBListAPIKey, cfg.TMDBAPIKey)
+	}
+}
+
 func NewHandler(
 	movieStore *database.MovieStore,
 	seriesStore *database.SeriesStore,
@@ -2446,6 +2499,8 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		h.refreshRuntimeClients(&newSettings)
+
 		// Log playlist filter changes
 		if oldSettings.OnlyCachedStreams != newSettings.OnlyCachedStreams {
 			if newSettings.OnlyCachedStreams {
@@ -2541,6 +2596,18 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 			go func() {
 				log.Println("[Settings] MDBList lists updated, triggering sync...")
 				h.runService(services.ServiceMDBListSync)
+			}()
+		}
+
+		if h.mdbSyncService != nil && newSettings.TMDBAPIKey != "" && oldSettings.TMDBAPIKey != newSettings.TMDBAPIKey {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+				defer cancel()
+
+				log.Println("[Settings] TMDB key updated, enriching existing items with artwork...")
+				if err := h.mdbSyncService.EnrichExistingItems(ctx); err != nil {
+					log.Printf("[Settings] Artwork enrichment failed: %v", err)
+				}
 			}()
 		}
 

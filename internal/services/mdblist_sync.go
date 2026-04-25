@@ -35,6 +35,13 @@ func NewMDBListSyncService(db *sql.DB, mdbAPIKey, tmdbAPIKey string) *MDBListSyn
 	}
 }
 
+// UpdateAPIKeys refreshes the API clients used by the sync service so new
+// settings take effect without requiring an app restart.
+func (s *MDBListSyncService) UpdateAPIKeys(mdbAPIKey, tmdbAPIKey string) {
+	s.mdbClient = NewMDBListClient(mdbAPIKey, "./cache/mdblist")
+	s.tmdbClient = NewTMDBClient(tmdbAPIKey)
+}
+
 // SyncAllLists fetches all enabled MDBList lists and imports movies/series to database
 func (s *MDBListSyncService) SyncAllLists(ctx context.Context) error {
 	// Get mdblist_lists from settings
