@@ -136,6 +136,10 @@ func (h *Handler) refreshRuntimeClients(cfg *settings.Settings) {
 	if h.mdbSyncService != nil {
 		h.mdbSyncService.UpdateAPIKeys(cfg.MDBListAPIKey, cfg.TMDBAPIKey)
 	}
+
+	if h.cacheScanner != nil {
+		h.cacheScanner.SetProvider(h.streamProvider)
+	}
 }
 
 func NewHandler(

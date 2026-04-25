@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Zerr0-C00L/StreamArr/internal/database"
@@ -21,10 +22,23 @@ type CacheScanner struct {
 	cacheStore      *database.StreamCacheStore
 	streamService   *streams.StreamService
 	provider        *providers.MultiProvider
+	providerMu      sync.RWMutex
 	debridService   debrid.DebridService
 	settingsManager *settings.Manager
 	ticker          *time.Ticker
 	stopChan        chan bool
+}
+
+func (cs *CacheScanner) SetProvider(provider *providers.MultiProvider) {
+	cs.providerMu.Lock()
+	defer cs.providerMu.Unlock()
+	cs.provider = provider
+}
+
+func (cs *CacheScanner) getProvider() *providers.MultiProvider {
+	cs.providerMu.RLock()
+	defer cs.providerMu.RUnlock()
+	return cs.provider
 }
 
 // NewCacheScanner creates a new cache scanner
@@ -151,7 +165,14 @@ func (cs *CacheScanner) ScanAndUpgrade(ctx context.Context) error {
 			// which handles RD checking internally via their proxy
 			time.Sleep(2 * time.Second) // Rate limit protection
 
-			providerStreams, err := cs.provider.GetMovieStreamsWithYear(imdbID, releaseYear)
+			provider := cs.getProvider()
+			if provider == nil {
+				log.Printf("[CACHE-SCANNER] No stream provider configured, skipping %s", movie.Title)
+				skipped++
+				continue
+			}
+
+			providerStreams, err := provider.GetMovieStreamsWithYear(imdbID, releaseYear)
 			if err != nil {
 				log.Printf("[CACHE-SCANNER] Error fetching streams for %s (%s): %v", movie.Title, imdbID, err)
 				// On error, wait longer before continuing
@@ -349,7 +370,12 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 			}
 
 			// Fetch streams for this episode
-			providerStreams, err := cs.provider.GetSeriesStreams(imdbID, season, episode)
+			provider := cs.getProvider()
+			if provider == nil {
+				continue
+			}
+
+			providerStreams, err := provider.GetSeriesStreams(imdbID, season, episode)
 			if err != nil || len(providerStreams) == 0 {
 				continue
 			}
@@ -460,12 +486,14 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 			// Insert into media_streams for series
 			insertQuery := `
 				INSERT INTO media_streams (
-					series_id, season, episode, stream_url, stream_hash, 
+					media_type, media_id, series_id, season, episode, stream_url, stream_hash, 
 					quality_score, resolution, hdr_type, audio_format, 
 					source_type, file_size_gb, codec, indexer
-				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 				ON CONFLICT (series_id, season, episode) 
 				DO UPDATE SET 
+					media_type = EXCLUDED.media_type,
+					media_id = EXCLUDED.media_id,
 					stream_url = EXCLUDED.stream_url,
 					stream_hash = EXCLUDED.stream_hash,
 					quality_score = EXCLUDED.quality_score,
@@ -480,7 +508,7 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 			`
 
 			_, err = cs.cacheStore.GetDB().ExecContext(ctx, insertQuery,
-				s.ID, season, episode, bestStream.URL, hash,
+				"series", s.ID, s.ID, season, episode, bestStream.URL, hash,
 				qualityScore, parsed.Resolution, parsed.HDRType, parsed.AudioFormat,
 				parsed.Source, parsed.SizeGB, parsed.Codec, bestStream.Source,
 			)

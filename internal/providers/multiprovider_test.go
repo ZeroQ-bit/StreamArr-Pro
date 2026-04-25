@@ -24,16 +24,12 @@ func TestBuildRuntimeAddonsKeepsConfiguredEnabledAddons(t *testing.T) {
 func TestBuildRuntimeAddonsBootstrapsDefaultsForRealDebrid(t *testing.T) {
 	runtimeAddons := BuildRuntimeAddons(nil, true, "rd-token", true, "")
 
-	if len(runtimeAddons) != 2 {
-		t.Fatalf("expected 2 default addons, got %d", len(runtimeAddons))
+	if len(runtimeAddons) != 1 {
+		t.Fatalf("expected 1 default addon, got %d", len(runtimeAddons))
 	}
 
-	if runtimeAddons[0].Name != "Comet" || runtimeAddons[0].URL != DefaultCometAddonURL {
-		t.Fatalf("expected Comet default addon first, got %#v", runtimeAddons[0])
-	}
-
-	if runtimeAddons[1].Name != "Torrentio" || runtimeAddons[1].URL != DefaultTorrentioAddonURL {
-		t.Fatalf("expected Torrentio default addon second, got %#v", runtimeAddons[1])
+	if runtimeAddons[0].Name != "Torrentio" || runtimeAddons[0].URL != DefaultTorrentioAddonURL {
+		t.Fatalf("expected Torrentio default addon, got %#v", runtimeAddons[0])
 	}
 }
 

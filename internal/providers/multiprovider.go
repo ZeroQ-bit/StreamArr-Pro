@@ -52,7 +52,6 @@ type MultiProvider struct {
 }
 
 const (
-	DefaultCometAddonURL     = "https://comet.elfhosted.com"
 	DefaultTorrentioAddonURL = "https://torrentio.strem.fun"
 )
 
@@ -109,9 +108,10 @@ func NewMultiProviderWithConfig(rdAPIKey string, addons []StremioAddon, tmdbClie
 	return mp
 }
 
-// BuildRuntimeAddons normalizes the saved addon list and bootstraps sane defaults
-// for Real-Debrid-backed installs when no explicit provider addons are enabled.
-func BuildRuntimeAddons(addons []StremioAddon, useRealDebrid bool, rdAPIKey string, cometEnabled bool, cometURL string) []StremioAddon {
+// BuildRuntimeAddons normalizes the saved addon list and bootstraps a sane
+// default for Real-Debrid-backed installs when no explicit provider addons are
+// enabled yet.
+func BuildRuntimeAddons(addons []StremioAddon, useRealDebrid bool, rdAPIKey string, _ bool, _ string) []StremioAddon {
 	normalized := normalizeEnabledAddons(addons)
 	if len(normalized) > 0 {
 		return normalized
@@ -121,25 +121,11 @@ func BuildRuntimeAddons(addons []StremioAddon, useRealDebrid bool, rdAPIKey stri
 		return normalized
 	}
 
-	runtimeAddons := make([]StremioAddon, 0, 2)
-
-	if cometEnabled {
-		resolvedCometURL := strings.TrimRight(strings.TrimSpace(cometURL), "/")
-		if resolvedCometURL == "" {
-			resolvedCometURL = DefaultCometAddonURL
-		}
-		runtimeAddons = append(runtimeAddons, StremioAddon{
-			Name:    "Comet",
-			URL:     resolvedCometURL,
-			Enabled: true,
-		})
-	}
-
-	runtimeAddons = append(runtimeAddons, StremioAddon{
+	runtimeAddons := []StremioAddon{{
 		Name:    "Torrentio",
 		URL:     DefaultTorrentioAddonURL,
 		Enabled: true,
-	})
+	}}
 
 	log.Printf("No enabled Stremio provider addons configured; bootstrapping defaults: %v", addonNames(runtimeAddons))
 	return runtimeAddons
