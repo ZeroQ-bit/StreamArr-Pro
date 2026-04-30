@@ -14,69 +14,70 @@ type Settings struct {
 // SettingsResponse is the full settings object returned to the frontend
 type SettingsResponse struct {
 	// API Keys
-	TMDBAPIKey        string `json:"tmdb_api_key"`
-	RealDebridToken   string `json:"realdebrid_token"`
-	PremiumizeAPIKey  string `json:"premiumize_api_key"`
-	MDBListAPIKey     string `json:"mdblist_api_key"`
+	TMDBAPIKey       string `json:"tmdb_api_key"`
+	RealDebridToken  string `json:"realdebrid_token"`
+	PremiumizeAPIKey string `json:"premiumize_api_key"`
+	MDBListAPIKey    string `json:"mdblist_api_key"`
 
 	// Playlist Settings
-	UserCreatePlaylist   bool   `json:"user_create_playlist"`
-	TotalPages           int    `json:"total_pages"`
-	Language             string `json:"language"`
-	MoviesOriginCountry  string `json:"movies_origin_country"`
-	SeriesOriginCountry  string `json:"series_origin_country"`
-	M3U8Limit            int    `json:"m3u8_limit"`
-	IncludeLiveTV        bool   `json:"include_live_tv"`
-	IncludeAdultVOD      bool   `json:"include_adult_vod"`
-	IPTVImportMode       string `json:"iptv_import_mode"` // live_only | vod_only | both
-	DuplicateVODPerProvider bool `json:"duplicate_vod_per_provider"`
-	IPTVVODSyncIntervalHours int `json:"iptv_vod_sync_interval_hours"`
-	OnlyReleasedContent  bool   `json:"only_released_content"`
-	HideUnavailableContent bool `json:"hide_unavailable_content"`
+	UserCreatePlaylist             bool   `json:"user_create_playlist"`
+	TotalPages                     int    `json:"total_pages"`
+	Language                       string `json:"language"`
+	MoviesOriginCountry            string `json:"movies_origin_country"`
+	SeriesOriginCountry            string `json:"series_origin_country"`
+	M3U8Limit                      int    `json:"m3u8_limit"`
+	IncludeLiveTV                  bool   `json:"include_live_tv"`
+	IncludeAdultVOD                bool   `json:"include_adult_vod"`
+	IPTVImportMode                 string `json:"iptv_import_mode"` // live_only | vod_only | both
+	DuplicateVODPerProvider        bool   `json:"duplicate_vod_per_provider"`
+	IPTVVODSyncIntervalHours       int    `json:"iptv_vod_sync_interval_hours"`
+	OnlyReleasedContent            bool   `json:"only_released_content"`
+	HideUnavailableContent         bool   `json:"hide_unavailable_content"`
+	AutoAddBestStreamsToRealDebrid bool   `json:"auto_add_best_streams_to_realdebrid"`
 
 	// Stream Settings (quality/size handled by addon configuration)
-	EnableQualityVariants  bool `json:"enable_quality_variants"`
-	ShowFullStreamName     bool `json:"show_full_stream_name"`
+	EnableQualityVariants bool `json:"enable_quality_variants"`
+	ShowFullStreamName    bool `json:"show_full_stream_name"`
 
 	// Collection Settings
-	AutoAddCollections     bool `json:"auto_add_collections"`
+	AutoAddCollections bool `json:"auto_add_collections"`
 
 	// Balkan VOD (GitHub Repos)
-	BalkanVODEnabled              bool     `json:"balkan_vod_enabled"`
-	BalkanVODAutoSync             bool     `json:"balkan_vod_auto_sync"`
-	BalkanVODSyncIntervalHours    int      `json:"balkan_vod_sync_interval_hours"`
-	BalkanVODSelectedCategories   []string `json:"balkan_vod_selected_categories"`
+	BalkanVODEnabled            bool     `json:"balkan_vod_enabled"`
+	BalkanVODAutoSync           bool     `json:"balkan_vod_auto_sync"`
+	BalkanVODSyncIntervalHours  int      `json:"balkan_vod_sync_interval_hours"`
+	BalkanVODSelectedCategories []string `json:"balkan_vod_selected_categories"`
 
 	// Providers
-	UseRealDebrid       bool   `json:"use_realdebrid"`
-	UsePremiumize       bool   `json:"use_premiumize"`
-	MediaFusionEnabled  bool   `json:"mediafusion_enabled"`
-	TorrentioProviders  string `json:"torrentio_providers"`
+	UseRealDebrid      bool   `json:"use_realdebrid"`
+	UsePremiumize      bool   `json:"use_premiumize"`
+	MediaFusionEnabled bool   `json:"mediafusion_enabled"`
+	TorrentioProviders string `json:"torrentio_providers"`
 
 	// Removed Comet Provider Settings
 
 	// Content Sources (GitHub lists)
-	IncludePopularMovies         bool `json:"include_popular_movies"`
-	IncludeTopRatedMovies        bool `json:"include_top_rated_movies"`
-	IncludeNowPlaying            bool `json:"include_now_playing"`
-	IncludeUpcoming              bool `json:"include_upcoming"`
-	IncludeLatestReleasesMovies  bool `json:"include_latest_releases_movies"`
-	IncludeCollections           bool `json:"include_collections"`
-	IncludePopularSeries         bool `json:"include_popular_series"`
-	IncludeTopRatedSeries        bool `json:"include_top_rated_series"`
-	IncludeAiringToday           bool `json:"include_airing_today"`
-	IncludeOnTheAir              bool `json:"include_on_the_air"`
-	IncludeLatestReleasesSeries  bool `json:"include_latest_releases_series"`
+	IncludePopularMovies        bool `json:"include_popular_movies"`
+	IncludeTopRatedMovies       bool `json:"include_top_rated_movies"`
+	IncludeNowPlaying           bool `json:"include_now_playing"`
+	IncludeUpcoming             bool `json:"include_upcoming"`
+	IncludeLatestReleasesMovies bool `json:"include_latest_releases_movies"`
+	IncludeCollections          bool `json:"include_collections"`
+	IncludePopularSeries        bool `json:"include_popular_series"`
+	IncludeTopRatedSeries       bool `json:"include_top_rated_series"`
+	IncludeAiringToday          bool `json:"include_airing_today"`
+	IncludeOnTheAir             bool `json:"include_on_the_air"`
+	IncludeLatestReleasesSeries bool `json:"include_latest_releases_series"`
 
 	// Filtering REMOVED - now handled by addon URL configuration (e.g., Torrentio debridoptions)
 
 	// Advanced
-	UserSetHost             string `json:"user_set_host"`
-	ExpirationHours         int    `json:"expiration_hours"`
-	AutoCacheIntervalHours  int    `json:"auto_cache_interval_hours"`
-	Timeout                 int    `json:"timeout"`
-	UseGithubForCache       bool   `json:"use_github_for_cache"`
-	Debug                   bool   `json:"debug"`
+	UserSetHost            string `json:"user_set_host"`
+	ExpirationHours        int    `json:"expiration_hours"`
+	AutoCacheIntervalHours int    `json:"auto_cache_interval_hours"`
+	Timeout                int    `json:"timeout"`
+	UseGithubForCache      bool   `json:"use_github_for_cache"`
+	Debug                  bool   `json:"debug"`
 
 	// Xtream API Credentials (separate from web app login)
 	XtreamUsername string `json:"xtream_username"`
@@ -93,7 +94,7 @@ type CalendarEntry struct {
 	Overview    string     `json:"overview,omitempty"`
 	VoteAverage float64    `json:"vote_average,omitempty"`
 	Year        int        `json:"year,omitempty"`
-	
+
 	// For episodes
 	SeriesID      *int64 `json:"series_id,omitempty"`
 	SeriesTitle   string `json:"series_title,omitempty"`

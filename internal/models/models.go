@@ -6,29 +6,29 @@ import "time"
 type Metadata map[string]interface{}
 
 type Movie struct {
-	ID             int64       `json:"id"`
-	TMDBID         int         `json:"tmdb_id"`
-	Title          string      `json:"title"`
-	OriginalTitle  string      `json:"original_title"`
-	Overview       string      `json:"overview"`
-	PosterPath     string      `json:"poster_path"`
-	BackdropPath   string      `json:"backdrop_path"`
-	ReleaseDate    *time.Time  `json:"release_date,omitempty"`
-	Year           int         `json:"year,omitempty"`
-	Runtime        int         `json:"runtime"`
-	Genres         []string    `json:"genres"`
-	VoteAverage    float64     `json:"vote_average,omitempty"`
-	VoteCount      int         `json:"vote_count,omitempty"`
-	OriginalLang   string      `json:"original_language,omitempty"`
-	Metadata       Metadata    `json:"metadata"`
-	Monitored      bool        `json:"monitored"`
-	Available      bool        `json:"available"`
-	QualityProfile string      `json:"quality_profile"`
-	SearchStatus   string      `json:"search_status"`
-	LastChecked    *time.Time  `json:"last_checked,omitempty"`
-	CreatedAt      time.Time   `json:"created_at"`
-	UpdatedAt      time.Time   `json:"updated_at"`
-	AddedAt        time.Time   `json:"added_at"`
+	ID             int64      `json:"id"`
+	TMDBID         int        `json:"tmdb_id"`
+	Title          string     `json:"title"`
+	OriginalTitle  string     `json:"original_title"`
+	Overview       string     `json:"overview"`
+	PosterPath     string     `json:"poster_path"`
+	BackdropPath   string     `json:"backdrop_path"`
+	ReleaseDate    *time.Time `json:"release_date,omitempty"`
+	Year           int        `json:"year,omitempty"`
+	Runtime        int        `json:"runtime"`
+	Genres         []string   `json:"genres"`
+	VoteAverage    float64    `json:"vote_average,omitempty"`
+	VoteCount      int        `json:"vote_count,omitempty"`
+	OriginalLang   string     `json:"original_language,omitempty"`
+	Metadata       Metadata   `json:"metadata"`
+	Monitored      bool       `json:"monitored"`
+	Available      bool       `json:"available"`
+	QualityProfile string     `json:"quality_profile"`
+	SearchStatus   string     `json:"search_status"`
+	LastChecked    *time.Time `json:"last_checked,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	AddedAt        time.Time  `json:"added_at"`
 	// Collection fields
 	CollectionID      *int64      `json:"collection_id,omitempty"`
 	Collection        *Collection `json:"collection,omitempty"`
@@ -46,7 +46,7 @@ type Collection struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	// Computed fields (not stored in DB)
-	TotalMovies    int `json:"total_movies,omitempty"`
+	TotalMovies     int `json:"total_movies,omitempty"`
 	MoviesInLibrary int `json:"movies_in_library,omitempty"`
 }
 
@@ -145,26 +145,34 @@ type QualityProfile struct {
 
 // CachedStream represents a cached debrid stream for a movie
 type CachedStream struct {
-	ID               int       `json:"id"`
-	MovieID          int       `json:"movie_id"`
-	StreamURL        string    `json:"stream_url"`
-	StreamHash       string    `json:"stream_hash"`
-	QualityScore     int       `json:"quality_score"`
-	Resolution       string    `json:"resolution"`
-	HDRType          string    `json:"hdr_type"`
-	AudioFormat      string    `json:"audio_format"`
-	SourceType       string    `json:"source_type"`
-	FileSizeGB       float64   `json:"file_size_gb"`
-	Codec            string    `json:"codec"`
-	Indexer          string    `json:"indexer"`
-	CachedAt         time.Time `json:"cached_at"`
-	LastChecked      time.Time `json:"last_checked"`
-	CheckCount       int       `json:"check_count"`
-	IsAvailable      bool      `json:"is_available"`
-	UpgradeAvailable bool      `json:"upgrade_available"`
-	NextCheckAt      time.Time `json:"next_check_at"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID               int        `json:"id"`
+	MediaType        string     `json:"media_type"`
+	MediaID          int        `json:"media_id"`
+	MovieID          int        `json:"movie_id"`
+	SeriesID         int        `json:"series_id"`
+	Season           int        `json:"season"`
+	Episode          int        `json:"episode"`
+	StreamURL        string     `json:"stream_url"`
+	StreamHash       string     `json:"stream_hash"`
+	QualityScore     int        `json:"quality_score"`
+	Resolution       string     `json:"resolution"`
+	HDRType          string     `json:"hdr_type"`
+	AudioFormat      string     `json:"audio_format"`
+	SourceType       string     `json:"source_type"`
+	FileSizeGB       float64    `json:"file_size_gb"`
+	Codec            string     `json:"codec"`
+	Indexer          string     `json:"indexer"`
+	CachedAt         time.Time  `json:"cached_at"`
+	LastChecked      time.Time  `json:"last_checked"`
+	CheckCount       int        `json:"check_count"`
+	IsAvailable      bool       `json:"is_available"`
+	UpgradeAvailable bool       `json:"upgrade_available"`
+	RDLibraryAdded   bool       `json:"rd_library_added"`
+	RDTorrentID      string     `json:"rd_torrent_id"`
+	RDLibraryAddedAt *time.Time `json:"rd_library_added_at,omitempty"`
+	NextCheckAt      time.Time  `json:"next_check_at"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 // TorrentStream represents a torrent stream with quality metadata for Phase 1

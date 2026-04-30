@@ -75,23 +75,24 @@ type Settings struct {
 	AutoAddCollections    bool `json:"auto_add_collections"` // Automatically add entire collection when adding a movie
 
 	// Playlist Settings
-	TotalPages               int    `json:"total_pages"`
-	MinYear                  int    `json:"min_year"`
-	MinRuntime               int    `json:"min_runtime"`
-	Language                 string `json:"language"`
-	SeriesOriginCountry      string `json:"series_origin_country"`
-	MoviesOriginCountry      string `json:"movies_origin_country"`
-	UserCreatePlaylist       bool   `json:"user_create_playlist"`
-	IncludeAdultVOD          bool   `json:"include_adult_vod"`
-	IncludeLiveTV            bool   `json:"include_live_tv"`
-	IPTVImportMode           string `json:"iptv_import_mode"`
-	IPTVVODSyncIntervalHours int    `json:"iptv_vod_sync_interval_hours"`
-	DuplicateVODPerProvider  bool   `json:"duplicate_vod_per_provider"`
-	IPTVVODFastImport        bool   `json:"iptv_vod_fast_import"` // If true, import VOD without TMDB lookups (basic metadata only)
-	AutoCacheIntervalHours   int    `json:"auto_cache_interval_hours"`
-	ImportAdultVODFromGitHub bool   `json:"import_adult_vod_from_github"` // Import adult VOD content from public-files repo
-	OnlyCachedStreams        bool   `json:"only_cached_streams"`          // Only include media with cached streams in Stream Cache Monitor
-	OnlyReleasedContent      bool   `json:"only_released_content"`        // Only include released content in IPTV playlist
+	TotalPages                     int    `json:"total_pages"`
+	MinYear                        int    `json:"min_year"`
+	MinRuntime                     int    `json:"min_runtime"`
+	Language                       string `json:"language"`
+	SeriesOriginCountry            string `json:"series_origin_country"`
+	MoviesOriginCountry            string `json:"movies_origin_country"`
+	UserCreatePlaylist             bool   `json:"user_create_playlist"`
+	IncludeAdultVOD                bool   `json:"include_adult_vod"`
+	IncludeLiveTV                  bool   `json:"include_live_tv"`
+	IPTVImportMode                 string `json:"iptv_import_mode"`
+	IPTVVODSyncIntervalHours       int    `json:"iptv_vod_sync_interval_hours"`
+	DuplicateVODPerProvider        bool   `json:"duplicate_vod_per_provider"`
+	IPTVVODFastImport              bool   `json:"iptv_vod_fast_import"` // If true, import VOD without TMDB lookups (basic metadata only)
+	AutoCacheIntervalHours         int    `json:"auto_cache_interval_hours"`
+	ImportAdultVODFromGitHub       bool   `json:"import_adult_vod_from_github"`        // Import adult VOD content from public-files repo
+	OnlyCachedStreams              bool   `json:"only_cached_streams"`                 // Only include media with cached streams in Stream Cache Monitor
+	OnlyReleasedContent            bool   `json:"only_released_content"`               // Only include released content in IPTV playlist
+	AutoAddBestStreamsToRealDebrid bool   `json:"auto_add_best_streams_to_realdebrid"` // Add the best discovered library stream to the user's Real-Debrid account
 
 	// Content Filters
 	BlockBollywood bool `json:"block_bollywood"` // Block Indian-origin (Bollywood) media from import and playlists
@@ -210,23 +211,24 @@ func getDefaultSettings() *Settings {
 		CometURL: "https://comet.elfhosted.com",
 
 		// Quality defaults
-		MaxResolution:            2160,
-		MaxFileSize:              50000,
-		EnableQualityVariants:    false,
-		ShowFullStreamName:       false,
-		TotalPages:               5,
-		MinYear:                  1970,
-		MinRuntime:               30,
-		Language:                 "en-US",
-		SeriesOriginCountry:      "US",
-		MoviesOriginCountry:      "US",
-		UserCreatePlaylist:       true,
-		IncludeAdultVOD:          false,
-		IPTVImportMode:           "live_only",
-		IPTVVODSyncIntervalHours: 6,
-		DuplicateVODPerProvider:  false,
-		IPTVVODFastImport:        false,
-		ImportAdultVODFromGitHub: false,
+		MaxResolution:                  2160,
+		MaxFileSize:                    50000,
+		EnableQualityVariants:          false,
+		ShowFullStreamName:             false,
+		TotalPages:                     5,
+		MinYear:                        1970,
+		MinRuntime:                     30,
+		Language:                       "en-US",
+		SeriesOriginCountry:            "US",
+		MoviesOriginCountry:            "US",
+		UserCreatePlaylist:             true,
+		IncludeAdultVOD:                false,
+		IPTVImportMode:                 "live_only",
+		IPTVVODSyncIntervalHours:       6,
+		DuplicateVODPerProvider:        false,
+		IPTVVODFastImport:              false,
+		ImportAdultVODFromGitHub:       false,
+		AutoAddBestStreamsToRealDebrid: false,
 		// Content Filters
 		BlockBollywood:              false,
 		BalkanVODEnabled:            false,      // Disabled by default - users need to enable
@@ -622,38 +624,39 @@ func (m *Manager) GetAll() (map[string]interface{}, error) {
 	defer m.mu.RUnlock()
 
 	return map[string]interface{}{
-		"tmdb_api_key":              m.settings.TMDBAPIKey,
-		"realdebrid_api_key":        m.settings.RealDebridAPIKey,
-		"realdebrid_token":          m.settings.RealDebridAPIKey,
-		"premiumize_api_key":        m.settings.PremiumizeAPIKey,
-		"mdblist_api_key":           m.settings.MDBListAPIKey,
-		"use_realdebrid":            m.settings.UseRealDebrid,
-		"use_premiumize":            m.settings.UsePremiumize,
-		"comet_enabled":             m.settings.CometEnabled,
-		"comet_indexers":            m.settings.CometIndexers,
-		"comet_only_show_cached":    m.settings.CometOnlyShowCached,
-		"comet_max_results":         m.settings.CometMaxResults,
-		"comet_sort_by":             m.settings.CometSortBy,
-		"comet_excluded_qualities":  m.settings.CometExcludedQualities,
-		"comet_priority_languages":  m.settings.CometPriorityLanguages,
-		"comet_max_size":            m.settings.CometMaxSize,
-		"total_pages":               m.settings.TotalPages,
-		"max_resolution":            m.settings.MaxResolution,
-		"auto_cache_interval_hours": m.settings.AutoCacheIntervalHours,
-		"user_create_playlist":      m.settings.UserCreatePlaylist,
-		"include_adult_vod":         m.settings.IncludeAdultVOD,
-		"block_bollywood":           m.settings.BlockBollywood,
-		"debug":                     m.settings.Debug,
-		"language":                  m.settings.Language,
-		"series_origin_country":     m.settings.SeriesOriginCountry,
-		"movies_origin_country":     m.settings.MoviesOriginCountry,
-		"stremio_addons":            m.settings.StremioAddons,
-		"server_port":               m.settings.ServerPort,
-		"host":                      m.settings.Host,
-		"enable_notifications":      m.settings.EnableNotifications,
-		"discord_webhook_url":       m.settings.DiscordWebhookURL,
-		"telegram_bot_token":        m.settings.TelegramBotToken,
-		"telegram_chat_id":          m.settings.TelegramChatID,
+		"tmdb_api_key":                        m.settings.TMDBAPIKey,
+		"realdebrid_api_key":                  m.settings.RealDebridAPIKey,
+		"realdebrid_token":                    m.settings.RealDebridAPIKey,
+		"premiumize_api_key":                  m.settings.PremiumizeAPIKey,
+		"mdblist_api_key":                     m.settings.MDBListAPIKey,
+		"use_realdebrid":                      m.settings.UseRealDebrid,
+		"use_premiumize":                      m.settings.UsePremiumize,
+		"comet_enabled":                       m.settings.CometEnabled,
+		"comet_indexers":                      m.settings.CometIndexers,
+		"comet_only_show_cached":              m.settings.CometOnlyShowCached,
+		"comet_max_results":                   m.settings.CometMaxResults,
+		"comet_sort_by":                       m.settings.CometSortBy,
+		"comet_excluded_qualities":            m.settings.CometExcludedQualities,
+		"comet_priority_languages":            m.settings.CometPriorityLanguages,
+		"comet_max_size":                      m.settings.CometMaxSize,
+		"total_pages":                         m.settings.TotalPages,
+		"max_resolution":                      m.settings.MaxResolution,
+		"auto_cache_interval_hours":           m.settings.AutoCacheIntervalHours,
+		"user_create_playlist":                m.settings.UserCreatePlaylist,
+		"include_adult_vod":                   m.settings.IncludeAdultVOD,
+		"auto_add_best_streams_to_realdebrid": m.settings.AutoAddBestStreamsToRealDebrid,
+		"block_bollywood":                     m.settings.BlockBollywood,
+		"debug":                               m.settings.Debug,
+		"language":                            m.settings.Language,
+		"series_origin_country":               m.settings.SeriesOriginCountry,
+		"movies_origin_country":               m.settings.MoviesOriginCountry,
+		"stremio_addons":                      m.settings.StremioAddons,
+		"server_port":                         m.settings.ServerPort,
+		"host":                                m.settings.Host,
+		"enable_notifications":                m.settings.EnableNotifications,
+		"discord_webhook_url":                 m.settings.DiscordWebhookURL,
+		"telegram_bot_token":                  m.settings.TelegramBotToken,
+		"telegram_chat_id":                    m.settings.TelegramChatID,
 	}, nil
 }
 
@@ -722,6 +725,9 @@ func (m *Manager) SetAll(updates map[string]interface{}) error {
 	}
 	if v, ok := updates["include_adult_vod"].(bool); ok {
 		m.settings.IncludeAdultVOD = v
+	}
+	if v, ok := updates["auto_add_best_streams_to_realdebrid"].(bool); ok {
+		m.settings.AutoAddBestStreamsToRealDebrid = v
 	}
 	if v, ok := updates["block_bollywood"].(bool); ok {
 		m.settings.BlockBollywood = v

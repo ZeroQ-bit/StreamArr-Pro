@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -96,6 +97,12 @@ func (cs *CacheScanner) Stop() {
 // ScanAndUpgrade scans all movies for cache upgrades and empty entries
 func (cs *CacheScanner) ScanAndUpgrade(ctx context.Context) error {
 	log.Println("[CACHE-SCANNER] Starting library scan for upgrades and empty cache...")
+
+	if cs.shouldAutoAddBestStreamsToRealDebrid() {
+		if err := cs.syncPendingRealDebridLibraryAdds(ctx); err != nil {
+			log.Printf("[CACHE-SCANNER] Warning: failed to sync existing cached streams to Real-Debrid: %v", err)
+		}
+	}
 
 	upgraded := 0
 	cached := 0
@@ -295,6 +302,17 @@ func (cs *CacheScanner) ScanAndUpgrade(ctx context.Context) error {
 					errors++
 				} else {
 					cached++
+					if err := cs.maybeAddCachedStreamToRealDebrid(
+						ctx,
+						movie.Title,
+						stream.Hash,
+						bestStream.FileIdx,
+						func(torrentID string) error {
+							return cs.cacheStore.MarkRealDebridLibraryAddedForMovie(ctx, int(movie.ID), torrentID)
+						},
+					); err != nil {
+						log.Printf("[CACHE-SCANNER] Warning: failed to add %s to Real-Debrid library: %v", movie.Title, err)
+					}
 					log.Printf("[CACHE-SCANNER] ✅ Cached: %s | %s | Score: %d", movie.Title, stream.Resolution, stream.QualityScore)
 				}
 			}
@@ -504,6 +522,18 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 					file_size_gb = EXCLUDED.file_size_gb,
 					codec = EXCLUDED.codec,
 					indexer = EXCLUDED.indexer,
+					rd_library_added = CASE
+						WHEN media_streams.stream_hash IS DISTINCT FROM EXCLUDED.stream_hash THEN false
+						ELSE media_streams.rd_library_added
+					END,
+					rd_torrent_id = CASE
+						WHEN media_streams.stream_hash IS DISTINCT FROM EXCLUDED.stream_hash THEN NULL
+						ELSE media_streams.rd_torrent_id
+					END,
+					rd_library_added_at = CASE
+						WHEN media_streams.stream_hash IS DISTINCT FROM EXCLUDED.stream_hash THEN NULL
+						ELSE media_streams.rd_library_added_at
+					END,
 					updated_at = NOW()
 			`
 
@@ -518,6 +548,18 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 				errors++
 			} else {
 				cached++
+				seriesLabel := s.Title + " S" + twoDigit(season) + "E" + twoDigit(episode)
+				if err := cs.maybeAddCachedStreamToRealDebrid(
+					ctx,
+					seriesLabel,
+					hash,
+					bestStream.FileIdx,
+					func(torrentID string) error {
+						return cs.cacheStore.MarkRealDebridLibraryAddedForSeriesEpisode(ctx, int(s.ID), season, episode, torrentID)
+					},
+				); err != nil {
+					log.Printf("[CACHE-SCANNER] Warning: failed to add %s to Real-Debrid library: %v", seriesLabel, err)
+				}
 				log.Printf("[CACHE-SCANNER] ✅ Cached series: %s S%02dE%02d | %s | Score: %d",
 					s.Title, season, episode, parsed.Resolution, qualityScore)
 			}
@@ -571,4 +613,128 @@ func (cs *CacheScanner) CleanupUnreleasedCache(ctx context.Context) (int, error)
 
 	log.Printf("[CACHE-SCANNER] ✅ Cleaned up %d cached streams for unreleased movies", rowsDeleted)
 	return int(rowsDeleted), nil
+}
+
+func (cs *CacheScanner) shouldAutoAddBestStreamsToRealDebrid() bool {
+	if cs.settingsManager == nil || cs.debridService == nil {
+		return false
+	}
+
+	current := cs.settingsManager.Get()
+	return current != nil && current.UseRealDebrid && current.AutoAddBestStreamsToRealDebrid
+}
+
+func (cs *CacheScanner) maybeAddCachedStreamToRealDebrid(ctx context.Context, label, hash string, fileIdx int, markAdded func(string) error) error {
+	if !cs.shouldAutoAddBestStreamsToRealDebrid() || strings.TrimSpace(hash) == "" {
+		return nil
+	}
+
+	torrentID, err := cs.debridService.AddToLibrary(ctx, hash, fileIdx)
+	if err != nil {
+		if isRealDebridDuplicateError(err) {
+			log.Printf("[CACHE-SCANNER] %s already appears to exist in Real-Debrid, marking as synced locally", label)
+			return markAdded("")
+		}
+		return err
+	}
+
+	if err := markAdded(torrentID); err != nil {
+		return err
+	}
+
+	log.Printf("[CACHE-SCANNER] Added %s to Real-Debrid library (torrent ID: %s)", label, torrentID)
+	return nil
+}
+
+func (cs *CacheScanner) syncPendingRealDebridLibraryAdds(ctx context.Context) error {
+	const batchSize = 100
+
+	totalSynced := 0
+	for {
+		pending, err := cs.cacheStore.GetPendingRealDebridLibraryAdds(ctx, batchSize)
+		if err != nil {
+			return err
+		}
+		if len(pending) == 0 {
+			if totalSynced > 0 {
+				log.Printf("[CACHE-SCANNER] Real-Debrid library sync complete: %d cached streams added", totalSynced)
+			}
+			return nil
+		}
+
+		syncedThisBatch := 0
+		for _, stream := range pending {
+			label := stream.MediaType + " " + strconv.Itoa(stream.MediaID)
+			fileIdx := extractFileIndexFromStreamURL(stream.StreamURL)
+			if err := cs.maybeAddCachedStreamToRealDebrid(
+				ctx,
+				label,
+				stream.StreamHash,
+				fileIdx,
+				func(torrentID string) error {
+					return cs.cacheStore.MarkRealDebridLibraryAddedByID(ctx, stream.ID, torrentID)
+				},
+			); err != nil {
+				log.Printf("[CACHE-SCANNER] Failed to sync cached stream %s %d to Real-Debrid: %v", stream.MediaType, stream.MediaID, err)
+				if strings.Contains(strings.ToLower(err.Error()), "rate") {
+					time.Sleep(5 * time.Second)
+				}
+				continue
+			}
+
+			totalSynced++
+			syncedThisBatch++
+			if totalSynced%50 == 0 {
+				log.Printf("[CACHE-SCANNER] Real-Debrid library sync progress: %d streams added", totalSynced)
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+
+		if syncedThisBatch == 0 {
+			log.Printf("[CACHE-SCANNER] Real-Debrid library sync paused: no items from the current batch could be added")
+			return nil
+		}
+	}
+}
+
+func isRealDebridDuplicateError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already") ||
+		strings.Contains(msg, "duplicate") ||
+		strings.Contains(msg, "exists") ||
+		strings.Contains(msg, "active torrent")
+}
+
+func twoDigit(value int) string {
+	if value < 10 {
+		return "0" + strconv.Itoa(value)
+	}
+	return strconv.Itoa(value)
+}
+
+func extractFileIndexFromStreamURL(streamURL string) int {
+	parts := strings.Split(streamURL, "/")
+	for i, part := range parts {
+		if !isValidHash(part) {
+			continue
+		}
+
+		if i+2 < len(parts) && strings.EqualFold(parts[i+1], "null") {
+			if idx, err := strconv.Atoi(parts[i+2]); err == nil && idx > 0 {
+				return idx
+			}
+		}
+
+		if i+1 < len(parts) {
+			if idx, err := strconv.Atoi(parts[i+1]); err == nil && idx > 0 {
+				return idx
+			}
+		}
+	}
+
+	return 0
 }

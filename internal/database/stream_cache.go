@@ -13,6 +13,14 @@ type StreamCacheStore struct {
 	db *sql.DB
 }
 
+const cachedStreamSelectColumns = `
+	id, media_type, media_id, movie_id, series_id, season, episode, stream_url, stream_hash, quality_score,
+	resolution, hdr_type, audio_format, source_type, file_size_gb,
+	codec, indexer, cached_at, last_checked, check_count,
+	is_available, upgrade_available, rd_library_added, rd_torrent_id, rd_library_added_at,
+	next_check_at, created_at, updated_at
+`
+
 // NewStreamCacheStore creates a new stream cache store
 func NewStreamCacheStore(db *sql.DB) *StreamCacheStore {
 	return &StreamCacheStore{db: db}
@@ -26,38 +34,14 @@ func (s *StreamCacheStore) GetDB() *sql.DB {
 // GetCachedStream retrieves the cached stream for a movie
 // Returns nil if no cached stream exists
 func (s *StreamCacheStore) GetCachedStream(ctx context.Context, movieID int) (*models.CachedStream, error) {
-	query := `
-		SELECT id, movie_id, stream_url, stream_hash, quality_score,
-		       resolution, hdr_type, audio_format, source_type, file_size_gb,
-		       codec, indexer, cached_at, last_checked, check_count,
-		       is_available, upgrade_available, next_check_at, created_at, updated_at
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM media_streams
 		WHERE movie_id = $1
-	`
+	`, cachedStreamSelectColumns)
 
 	cached := &models.CachedStream{}
-	err := s.db.QueryRowContext(ctx, query, movieID).Scan(
-		&cached.ID,
-		&cached.MovieID,
-		&cached.StreamURL,
-		&cached.StreamHash,
-		&cached.QualityScore,
-		&cached.Resolution,
-		&cached.HDRType,
-		&cached.AudioFormat,
-		&cached.SourceType,
-		&cached.FileSizeGB,
-		&cached.Codec,
-		&cached.Indexer,
-		&cached.CachedAt,
-		&cached.LastChecked,
-		&cached.CheckCount,
-		&cached.IsAvailable,
-		&cached.UpgradeAvailable,
-		&cached.NextCheckAt,
-		&cached.CreatedAt,
-		&cached.UpdatedAt,
-	)
+	err := scanCachedStream(s.db.QueryRowContext(ctx, query, movieID), cached)
 
 	if err == sql.ErrNoRows {
 		return nil, nil // No cached stream
@@ -100,6 +84,18 @@ func (s *StreamCacheStore) CacheStream(ctx context.Context, movieID int, stream 
 			check_count = 0,
 			is_available = true,
 			upgrade_available = false,
+			rd_library_added = CASE
+				WHEN media_streams.stream_hash IS DISTINCT FROM EXCLUDED.stream_hash THEN false
+				ELSE media_streams.rd_library_added
+			END,
+			rd_torrent_id = CASE
+				WHEN media_streams.stream_hash IS DISTINCT FROM EXCLUDED.stream_hash THEN NULL
+				ELSE media_streams.rd_torrent_id
+			END,
+			rd_library_added_at = CASE
+				WHEN media_streams.stream_hash IS DISTINCT FROM EXCLUDED.stream_hash THEN NULL
+				ELSE media_streams.rd_library_added_at
+			END,
 			next_check_at = NOW() + INTERVAL '7 days',
 			updated_at = NOW()
 	`
@@ -190,17 +186,14 @@ func (s *StreamCacheStore) UpdateNextCheck(ctx context.Context, movieID int, day
 
 // GetStreamsDueForCheck retrieves streams that need availability checking
 func (s *StreamCacheStore) GetStreamsDueForCheck(ctx context.Context, limit int) ([]*models.CachedStream, error) {
-	query := `
-		SELECT id, movie_id, stream_url, stream_hash, quality_score,
-		       resolution, hdr_type, audio_format, source_type, file_size_gb,
-		       codec, indexer, cached_at, last_checked, check_count,
-		       is_available, upgrade_available, next_check_at, created_at, updated_at
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM media_streams
 		WHERE next_check_at <= NOW()
 		  AND is_available = true
 		ORDER BY last_checked ASC
 		LIMIT $1
-	`
+	`, cachedStreamSelectColumns)
 
 	rows, err := s.db.QueryContext(ctx, query, limit)
 	if err != nil {
@@ -211,28 +204,7 @@ func (s *StreamCacheStore) GetStreamsDueForCheck(ctx context.Context, limit int)
 	var streams []*models.CachedStream
 	for rows.Next() {
 		cached := &models.CachedStream{}
-		err := rows.Scan(
-			&cached.ID,
-			&cached.MovieID,
-			&cached.StreamURL,
-			&cached.StreamHash,
-			&cached.QualityScore,
-			&cached.Resolution,
-			&cached.HDRType,
-			&cached.AudioFormat,
-			&cached.SourceType,
-			&cached.FileSizeGB,
-			&cached.Codec,
-			&cached.Indexer,
-			&cached.CachedAt,
-			&cached.LastChecked,
-			&cached.CheckCount,
-			&cached.IsAvailable,
-			&cached.UpgradeAvailable,
-			&cached.NextCheckAt,
-			&cached.CreatedAt,
-			&cached.UpdatedAt,
-		)
+		err := scanCachedStream(rows, cached)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan stream: %w", err)
 		}
@@ -249,17 +221,14 @@ func (s *StreamCacheStore) GetStreamsDueForCheck(ctx context.Context, limit int)
 // GetStreamsByQualityScore retrieves streams with quality score below threshold
 // Useful for finding upgrade candidates
 func (s *StreamCacheStore) GetStreamsByQualityScore(ctx context.Context, maxScore int, limit int) ([]*models.CachedStream, error) {
-	query := `
-		SELECT id, movie_id, stream_url, stream_hash, quality_score,
-		       resolution, hdr_type, audio_format, source_type, file_size_gb,
-		       codec, indexer, cached_at, last_checked, check_count,
-		       is_available, upgrade_available, next_check_at, created_at, updated_at
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM media_streams
 		WHERE quality_score <= $1
 		  AND is_available = true
 		ORDER BY quality_score ASC
 		LIMIT $2
-	`
+	`, cachedStreamSelectColumns)
 
 	rows, err := s.db.QueryContext(ctx, query, maxScore, limit)
 	if err != nil {
@@ -270,28 +239,7 @@ func (s *StreamCacheStore) GetStreamsByQualityScore(ctx context.Context, maxScor
 	var streams []*models.CachedStream
 	for rows.Next() {
 		cached := &models.CachedStream{}
-		err := rows.Scan(
-			&cached.ID,
-			&cached.MovieID,
-			&cached.StreamURL,
-			&cached.StreamHash,
-			&cached.QualityScore,
-			&cached.Resolution,
-			&cached.HDRType,
-			&cached.AudioFormat,
-			&cached.SourceType,
-			&cached.FileSizeGB,
-			&cached.Codec,
-			&cached.Indexer,
-			&cached.CachedAt,
-			&cached.LastChecked,
-			&cached.CheckCount,
-			&cached.IsAvailable,
-			&cached.UpgradeAvailable,
-			&cached.NextCheckAt,
-			&cached.CreatedAt,
-			&cached.UpdatedAt,
-		)
+		err := scanCachedStream(rows, cached)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan stream: %w", err)
 		}
@@ -307,16 +255,13 @@ func (s *StreamCacheStore) GetStreamsByQualityScore(ctx context.Context, maxScor
 
 // GetUnavailableStreams retrieves streams marked as unavailable
 func (s *StreamCacheStore) GetUnavailableStreams(ctx context.Context, limit int) ([]*models.CachedStream, error) {
-	query := `
-		SELECT id, movie_id, stream_url, stream_hash, quality_score,
-		       resolution, hdr_type, audio_format, source_type, file_size_gb,
-		       codec, indexer, cached_at, last_checked, check_count,
-		       is_available, upgrade_available, next_check_at, created_at, updated_at
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM media_streams
 		WHERE is_available = false
 		ORDER BY last_checked ASC
 		LIMIT $1
-	`
+	`, cachedStreamSelectColumns)
 
 	rows, err := s.db.QueryContext(ctx, query, limit)
 	if err != nil {
@@ -327,28 +272,7 @@ func (s *StreamCacheStore) GetUnavailableStreams(ctx context.Context, limit int)
 	var streams []*models.CachedStream
 	for rows.Next() {
 		cached := &models.CachedStream{}
-		err := rows.Scan(
-			&cached.ID,
-			&cached.MovieID,
-			&cached.StreamURL,
-			&cached.StreamHash,
-			&cached.QualityScore,
-			&cached.Resolution,
-			&cached.HDRType,
-			&cached.AudioFormat,
-			&cached.SourceType,
-			&cached.FileSizeGB,
-			&cached.Codec,
-			&cached.Indexer,
-			&cached.CachedAt,
-			&cached.LastChecked,
-			&cached.CheckCount,
-			&cached.IsAvailable,
-			&cached.UpgradeAvailable,
-			&cached.NextCheckAt,
-			&cached.CreatedAt,
-			&cached.UpdatedAt,
-		)
+		err := scanCachedStream(rows, cached)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan stream: %w", err)
 		}
@@ -440,19 +364,124 @@ func (s *StreamCacheStore) DeleteCachedStream(ctx context.Context, movieID int) 
 	return nil
 }
 
+// MarkRealDebridLibraryAddedByID records that the cached stream has been added
+// to the user's Real-Debrid account so background scans can avoid duplicate adds.
+func (s *StreamCacheStore) MarkRealDebridLibraryAddedByID(ctx context.Context, cacheID int, torrentID string) error {
+	query := `
+		UPDATE media_streams
+		SET rd_library_added = true,
+		    rd_torrent_id = NULLIF($2, ''),
+		    rd_library_added_at = NOW(),
+		    updated_at = NOW()
+		WHERE id = $1
+	`
+
+	result, err := s.db.ExecContext(ctx, query, cacheID, torrentID)
+	if err != nil {
+		return fmt.Errorf("failed to mark Real-Debrid library add: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("no stream found for cache id %d", cacheID)
+	}
+
+	return nil
+}
+
+func (s *StreamCacheStore) MarkRealDebridLibraryAddedForMovie(ctx context.Context, movieID int, torrentID string) error {
+	query := `
+		UPDATE media_streams
+		SET rd_library_added = true,
+		    rd_torrent_id = NULLIF($2, ''),
+		    rd_library_added_at = NOW(),
+		    updated_at = NOW()
+		WHERE movie_id = $1
+	`
+
+	result, err := s.db.ExecContext(ctx, query, movieID, torrentID)
+	if err != nil {
+		return fmt.Errorf("failed to mark Real-Debrid movie add: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("no movie stream found for movie_id %d", movieID)
+	}
+
+	return nil
+}
+
+func (s *StreamCacheStore) MarkRealDebridLibraryAddedForSeriesEpisode(ctx context.Context, seriesID, season, episode int, torrentID string) error {
+	query := `
+		UPDATE media_streams
+		SET rd_library_added = true,
+		    rd_torrent_id = NULLIF($4, ''),
+		    rd_library_added_at = NOW(),
+		    updated_at = NOW()
+		WHERE series_id = $1
+		  AND season = $2
+		  AND episode = $3
+	`
+
+	result, err := s.db.ExecContext(ctx, query, seriesID, season, episode, torrentID)
+	if err != nil {
+		return fmt.Errorf("failed to mark Real-Debrid series add: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("no series stream found for series_id %d S%02dE%02d", seriesID, season, episode)
+	}
+
+	return nil
+}
+
+// GetPendingRealDebridLibraryAdds retrieves cached streams that have not yet
+// been added to the user's Real-Debrid account.
+func (s *StreamCacheStore) GetPendingRealDebridLibraryAdds(ctx context.Context, limit int) ([]*models.CachedStream, error) {
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM media_streams
+		WHERE is_available = true
+		  AND COALESCE(stream_hash, '') <> ''
+		  AND rd_library_added = false
+		ORDER BY updated_at ASC
+		LIMIT $1
+	`, cachedStreamSelectColumns)
+
+	rows, err := s.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pending Real-Debrid library adds: %w", err)
+	}
+	defer rows.Close()
+
+	var streams []*models.CachedStream
+	for rows.Next() {
+		cached := &models.CachedStream{}
+		if err := scanCachedStream(rows, cached); err != nil {
+			return nil, fmt.Errorf("failed to scan pending Real-Debrid add: %w", err)
+		}
+		streams = append(streams, cached)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating pending Real-Debrid adds: %w", err)
+	}
+
+	return streams, nil
+}
+
 // GetStreamsWithUpgradesAvailable retrieves streams that have upgrades available
 func (s *StreamCacheStore) GetStreamsWithUpgradesAvailable(ctx context.Context, limit int) ([]*models.CachedStream, error) {
-	query := `
-		SELECT id, movie_id, stream_url, stream_hash, quality_score,
-		       resolution, hdr_type, audio_format, source_type, file_size_gb,
-		       codec, indexer, cached_at, last_checked, check_count,
-		       is_available, upgrade_available, next_check_at, created_at, updated_at
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM media_streams
 		WHERE upgrade_available = true
 		  AND is_available = true
 		ORDER BY quality_score ASC
 		LIMIT $1
-	`
+	`, cachedStreamSelectColumns)
 
 	rows, err := s.db.QueryContext(ctx, query, limit)
 	if err != nil {
@@ -463,28 +492,7 @@ func (s *StreamCacheStore) GetStreamsWithUpgradesAvailable(ctx context.Context, 
 	var streams []*models.CachedStream
 	for rows.Next() {
 		cached := &models.CachedStream{}
-		err := rows.Scan(
-			&cached.ID,
-			&cached.MovieID,
-			&cached.StreamURL,
-			&cached.StreamHash,
-			&cached.QualityScore,
-			&cached.Resolution,
-			&cached.HDRType,
-			&cached.AudioFormat,
-			&cached.SourceType,
-			&cached.FileSizeGB,
-			&cached.Codec,
-			&cached.Indexer,
-			&cached.CachedAt,
-			&cached.LastChecked,
-			&cached.CheckCount,
-			&cached.IsAvailable,
-			&cached.UpgradeAvailable,
-			&cached.NextCheckAt,
-			&cached.CreatedAt,
-			&cached.UpdatedAt,
-		)
+		err := scanCachedStream(rows, cached)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan stream: %w", err)
 		}
@@ -496,4 +504,81 @@ func (s *StreamCacheStore) GetStreamsWithUpgradesAvailable(ctx context.Context, 
 	}
 
 	return streams, nil
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanCachedStream(scanner rowScanner, cached *models.CachedStream) error {
+	var movieID sql.NullInt64
+	var seriesID sql.NullInt64
+	var season sql.NullInt64
+	var episode sql.NullInt64
+	var rdLibraryAddedAt sql.NullTime
+
+	if err := scanner.Scan(
+		&cached.ID,
+		&cached.MediaType,
+		&cached.MediaID,
+		&movieID,
+		&seriesID,
+		&season,
+		&episode,
+		&cached.StreamURL,
+		&cached.StreamHash,
+		&cached.QualityScore,
+		&cached.Resolution,
+		&cached.HDRType,
+		&cached.AudioFormat,
+		&cached.SourceType,
+		&cached.FileSizeGB,
+		&cached.Codec,
+		&cached.Indexer,
+		&cached.CachedAt,
+		&cached.LastChecked,
+		&cached.CheckCount,
+		&cached.IsAvailable,
+		&cached.UpgradeAvailable,
+		&cached.RDLibraryAdded,
+		&cached.RDTorrentID,
+		&rdLibraryAddedAt,
+		&cached.NextCheckAt,
+		&cached.CreatedAt,
+		&cached.UpdatedAt,
+	); err != nil {
+		return err
+	}
+
+	if rdLibraryAddedAt.Valid {
+		cached.RDLibraryAddedAt = &rdLibraryAddedAt.Time
+	} else {
+		cached.RDLibraryAddedAt = nil
+	}
+
+	if movieID.Valid {
+		cached.MovieID = int(movieID.Int64)
+	} else {
+		cached.MovieID = 0
+	}
+
+	if seriesID.Valid {
+		cached.SeriesID = int(seriesID.Int64)
+	} else {
+		cached.SeriesID = 0
+	}
+
+	if season.Valid {
+		cached.Season = int(season.Int64)
+	} else {
+		cached.Season = 0
+	}
+
+	if episode.Valid {
+		cached.Episode = int(episode.Int64)
+	} else {
+		cached.Episode = 0
+	}
+
+	return nil
 }

@@ -17,6 +17,11 @@ type DebridService interface {
 	// Used to select which file to stream when torrent has multiple files
 	GetAvailableFiles(ctx context.Context, hash string) ([]TorrentFile, error)
 
+	// AddToLibrary adds a torrent hash to the user's debrid account without
+	// resolving a playback URL. Implementations should return the provider's
+	// torrent ID when available.
+	AddToLibrary(ctx context.Context, hash string, fileIndex int) (string, error)
+
 	// GetServiceName returns the name of the debrid service (e.g., "Real-Debrid")
 	GetServiceName() string
 
@@ -26,11 +31,11 @@ type DebridService interface {
 
 // TorrentFile represents a file within a cached torrent
 type TorrentFile struct {
-	Index    int     // File index for selection
-	Path     string  // File path within torrent
-	Size     int64   // File size in bytes
-	Selected bool    // Whether this file is selected for download/stream
-	MimeType string  // MIME type (video/mp4, etc.)
+	Index    int    // File index for selection
+	Path     string // File path within torrent
+	Size     int64  // File size in bytes
+	Selected bool   // Whether this file is selected for download/stream
+	MimeType string // MIME type (video/mp4, etc.)
 }
 
 // CacheStatus represents the cache status of a torrent

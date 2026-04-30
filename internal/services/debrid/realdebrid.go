@@ -207,6 +207,67 @@ func (rd *RealDebrid) GetAvailableFiles(ctx context.Context, hash string) ([]Tor
 	return []TorrentFile{}, nil
 }
 
+// AddToLibrary adds a torrent to the user's Real-Debrid account without
+// resolving a playback URL. When a file index is provided, we select just that
+// file; otherwise we select all files so the torrent is usable later.
+func (rd *RealDebrid) AddToLibrary(ctx context.Context, hash string, fileIndex int) (string, error) {
+	magnetURL := fmt.Sprintf("magnet:?xt=urn:btih:%s", hash)
+
+	addURL := fmt.Sprintf("%s/torrents/addMagnet", realDebridBaseURL)
+	req, err := http.NewRequestWithContext(ctx, "POST", addURL, strings.NewReader(fmt.Sprintf("magnet=%s", magnetURL)))
+	if err != nil {
+		return "", fmt.Errorf("create add magnet request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+rd.apiKey)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := rd.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("add magnet: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("add magnet failed (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var addResult struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&addResult); err != nil {
+		return "", fmt.Errorf("decode add magnet response: %w", err)
+	}
+
+	selectValue := "files=all"
+	if fileIndex > 0 {
+		selectValue = fmt.Sprintf("files=%d", fileIndex)
+	}
+
+	selectURL := fmt.Sprintf("%s/torrents/selectFiles/%s", realDebridBaseURL, addResult.ID)
+	selectReq, err := http.NewRequestWithContext(ctx, "POST", selectURL, strings.NewReader(selectValue))
+	if err != nil {
+		return "", fmt.Errorf("create select files request: %w", err)
+	}
+
+	selectReq.Header.Set("Authorization", "Bearer "+rd.apiKey)
+	selectReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	selectResp, err := rd.httpClient.Do(selectReq)
+	if err != nil {
+		return "", fmt.Errorf("select files: %w", err)
+	}
+	defer selectResp.Body.Close()
+
+	if selectResp.StatusCode != http.StatusNoContent && selectResp.StatusCode != http.StatusCreated && selectResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(selectResp.Body)
+		return "", fmt.Errorf("select files failed (status %d): %s", selectResp.StatusCode, string(body))
+	}
+
+	return addResult.ID, nil
+}
+
 // GetServiceName returns the service name
 func (rd *RealDebrid) GetServiceName() string {
 	return "Real-Debrid"

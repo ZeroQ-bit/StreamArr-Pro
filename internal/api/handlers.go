@@ -2526,6 +2526,15 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 		h.refreshRuntimeClients(&newSettings)
 
+		if h.cacheScanner != nil && !oldSettings.AutoAddBestStreamsToRealDebrid && newSettings.AutoAddBestStreamsToRealDebrid {
+			go func() {
+				log.Println("[Settings] Real-Debrid library sync enabled, starting background library scan...")
+				if err := h.cacheScanner.ScanAndUpgrade(context.Background()); err != nil {
+					log.Printf("[Settings] Real-Debrid library sync scan failed: %v", err)
+				}
+			}()
+		}
+
 		// Log playlist filter changes
 		if oldSettings.OnlyCachedStreams != newSettings.OnlyCachedStreams {
 			if newSettings.OnlyCachedStreams {
