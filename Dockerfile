@@ -45,15 +45,33 @@ COPY streamarr-pro-ui/ ./
 RUN npm run build
 
 # Final stage
-FROM alpine:3.19
+FROM debian:bookworm-slim
 
 WORKDIR /app
 
+ARG TARGETARCH
+
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata wget unzip rclone fuse3
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      bash \
+      ca-certificates \
+      dos2unix \
+      fuse3 \
+      git \
+      rclone \
+      tzdata \
+      unzip \
+      wget && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install zurg public binary used for the internal RD mount helper
-RUN wget -O /tmp/zurg.zip https://github.com/debridmediamanager/zurg-testing/releases/download/v0.9.3-final/zurg-v0.9.3-final-linux-amd64.zip && \
+RUN case "${TARGETARCH}" in \
+      amd64) ZURG_ARCH="amd64" ;; \
+      arm64) ZURG_ARCH="arm64" ;; \
+      *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    wget -O /tmp/zurg.zip "https://github.com/debridmediamanager/zurg-testing/releases/download/v0.9.3-final/zurg-v0.9.3-final-linux-${ZURG_ARCH}.zip" && \
     unzip -j /tmp/zurg.zip -d /usr/local/bin && \
     ZURG_BIN="$(find /usr/local/bin -maxdepth 1 -type f -name 'zurg*' | head -n 1)" && \
     mv "${ZURG_BIN}" /usr/local/bin/zurg && \
@@ -77,9 +95,6 @@ COPY channels/ /app/channels/
 
 # Copy update and build scripts for in-app updates
 COPY scripts/update.sh scripts/build.sh scripts/start.sh scripts/stop.sh docker-compose.yml entrypoint.sh load_proxies.sh ./
-
-# Install git, docker-cli, docker-compose, and dos2unix for container updates
-RUN apk add --no-cache git bash docker-cli docker-cli-compose dos2unix
 
 # Convert line endings and make scripts executable
 RUN dos2unix update.sh build.sh start.sh stop.sh entrypoint.sh load_proxies.sh && \
