@@ -215,7 +215,8 @@ func (p *PlexExporter) resolveSourcePath(ctx context.Context, cfg *settings.Sett
 	if rdMount == "." || rdMount == "" {
 		return "", fmt.Errorf("plex export rd mount path is required")
 	}
-	log.Printf("[PLEX-EXPORT] Looking for source file under RD mount %s for cache_id=%d torrent_id=%q", rdMount, cached.ID, cached.RDTorrentID)
+	roots := candidateMountRoots(rdMount)
+	log.Printf("[PLEX-EXPORT] Looking for source file under RD mount roots %v for cache_id=%d torrent_id=%q", roots, cached.ID, cached.RDTorrentID)
 
 	info, err := p.rdClient.GetTorrentInfo(ctx, cached.RDTorrentID)
 	if err != nil {
@@ -224,39 +225,51 @@ func (p *PlexExporter) resolveSourcePath(ctx context.Context, cfg *settings.Sett
 	log.Printf("[PLEX-EXPORT] RD torrent info for cache_id=%d: filename=%q status=%q links=%d",
 		cached.ID, info.Filename, info.Status, len(info.Links))
 
-	if stat, statErr := os.Stat(rdMount); statErr != nil || !stat.IsDir() {
-		if statErr != nil {
+	availableRoots := make([]string, 0, len(roots))
+	for _, root := range roots {
+		if stat, statErr := os.Stat(root); statErr == nil && stat.IsDir() {
+			availableRoots = append(availableRoots, root)
+		}
+	}
+	if len(availableRoots) == 0 {
+		if _, statErr := os.Stat(rdMount); statErr != nil {
 			return "", fmt.Errorf("rd mount path unavailable: %w", statErr)
 		}
 		return "", fmt.Errorf("rd mount path is not a directory")
 	}
 
-	var candidates []string
-	if name := strings.TrimSpace(info.Filename); name != "" {
-		candidates = append(candidates,
-			filepath.Join(rdMount, name),
-			filepath.Join(rdMount, filepath.Base(name)),
-		)
-	}
-
-	for _, candidate := range candidates {
-		resolved, ok := resolveCandidatePath(candidate)
-		if ok {
-			log.Printf("[PLEX-EXPORT] Matched direct candidate for cache_id=%d: %s", cached.ID, resolved)
-			return resolved, nil
-		}
-	}
-
 	hintTitle, hintYear := p.buildMediaSearchHints(ctx, cached)
-	match, err := findBestMountedMatch(rdMount, info.Filename, cached, hintTitle, hintYear)
-	if err != nil {
-		return "", err
+
+	for _, root := range availableRoots {
+		var candidates []string
+		if name := strings.TrimSpace(info.Filename); name != "" {
+			candidates = append(candidates,
+				filepath.Join(root, name),
+				filepath.Join(root, filepath.Base(name)),
+			)
+		}
+
+		for _, candidate := range candidates {
+			resolved, ok := resolveCandidatePath(candidate)
+			if ok {
+				log.Printf("[PLEX-EXPORT] Matched direct candidate for cache_id=%d under %s: %s", cached.ID, root, resolved)
+				return resolved, nil
+			}
+		}
+
+		match, matchErr := findBestMountedMatch(root, info.Filename, cached, hintTitle, hintYear)
+		if matchErr != nil {
+			return "", matchErr
+		}
+		if match != "" {
+			log.Printf("[PLEX-EXPORT] Matched fallback candidate for cache_id=%d under %s: %s", cached.ID, root, match)
+			return match, nil
+		}
+
+		log.Printf("[PLEX-EXPORT] No source match found under %s for cache_id=%d; top-level entries: %s", root, cached.ID, summarizeTopLevelEntries(root, 12))
 	}
-	if match == "" {
-		return "", fmt.Errorf("could not locate mounted RD file for torrent %s", cached.RDTorrentID)
-	}
-	log.Printf("[PLEX-EXPORT] Matched fallback candidate for cache_id=%d: %s", cached.ID, match)
-	return match, nil
+
+	return "", fmt.Errorf("could not locate mounted RD file for torrent %s", cached.RDTorrentID)
 }
 
 func (p *PlexExporter) buildMediaSearchHints(ctx context.Context, cached *models.CachedStream) (string, int) {
@@ -631,6 +644,66 @@ func normalizeMatchString(value string) string {
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func candidateMountRoots(primary string) []string {
+	seen := map[string]struct{}{}
+	var roots []string
+	add := func(path string) {
+		path = filepath.Clean(strings.TrimSpace(path))
+		if path == "." || path == "" {
+			return
+		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		roots = append(roots, path)
+	}
+
+	add(primary)
+	switch primary {
+	case "/mnt/rd":
+		add("/mount")
+	case "/mount":
+		add("/mnt/rd")
+	}
+	return roots
+}
+
+func summarizeTopLevelEntries(root string, limit int) string {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Sprintf("unreadable (%v)", err)
+	}
+	if len(entries) == 0 {
+		return "(empty)"
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	names := make([]string, 0, minInt(len(entries), limit))
+	for i, entry := range entries {
+		if i >= limit {
+			break
+		}
+		name := entry.Name()
+		if entry.IsDir() {
+			name += "/"
+		}
+		names = append(names, name)
+	}
+	if len(entries) > limit {
+		names = append(names, fmt.Sprintf("...+%d more", len(entries)-limit))
+	}
+	return strings.Join(names, ", ")
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func truncateString(value string, maxLen int) string {
