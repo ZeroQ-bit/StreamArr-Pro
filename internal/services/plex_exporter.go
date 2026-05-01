@@ -29,6 +29,14 @@ type PlexExporter struct {
 	stopChan        chan struct{}
 }
 
+type plexExportStats struct {
+	pendingCount     int
+	exportedCount    int
+	failedCount      int
+	missingRDCount   int
+	missingFileCount int
+}
+
 func NewPlexExporter(
 	movieStore *database.MovieStore,
 	seriesStore *database.SeriesStore,
@@ -106,6 +114,7 @@ func (p *PlexExporter) ExportPending(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	log.Printf("[PLEX-EXPORT] Pending export candidates: %d", len(pending))
 	if len(pending) == 0 {
 		GlobalScheduler.UpdateProgress(ServicePlexExport, 0, 0, "No pending Plex exports")
 		return nil
@@ -114,6 +123,7 @@ func (p *PlexExporter) ExportPending(ctx context.Context) error {
 	GlobalScheduler.UpdateProgress(ServicePlexExport, 0, len(pending), "Exporting cached items to Plex")
 
 	var firstErr error
+	stats := plexExportStats{pendingCount: len(pending)}
 	for i, cached := range pending {
 		label := fmt.Sprintf("%s #%d", cached.MediaType, cached.MediaID)
 		if cached.MediaType == "movie" {
@@ -127,11 +137,20 @@ func (p *PlexExporter) ExportPending(ctx context.Context) error {
 		}
 
 		GlobalScheduler.UpdateProgress(ServicePlexExport, i, len(pending), fmt.Sprintf("Exporting %s", label))
+		log.Printf("[PLEX-EXPORT] Candidate %d/%d: %s (cache_id=%d rd_added=%v rd_torrent_id=%q exported=%v)",
+			i+1, len(pending), label, cached.ID, cached.RDLibraryAdded, cached.RDTorrentID, cached.PlexExported)
 
 		exportPath, exportErr := p.exportSingle(ctx, cfg, cached)
 		if exportErr != nil {
 			if firstErr == nil {
 				firstErr = exportErr
+			}
+			stats.failedCount++
+			if strings.Contains(exportErr.Error(), "missing rd torrent id") {
+				stats.missingRDCount++
+			}
+			if strings.Contains(exportErr.Error(), "could not locate mounted RD file") || strings.Contains(exportErr.Error(), "rd mount path unavailable") {
+				stats.missingFileCount++
 			}
 			log.Printf("[PLEX-EXPORT] Failed to export %s: %v", label, exportErr)
 			_ = p.streamCache.MarkPlexExportFailedByID(ctx, cached.ID, truncateString(exportErr.Error(), 500))
@@ -146,8 +165,13 @@ func (p *PlexExporter) ExportPending(ctx context.Context) error {
 			continue
 		}
 
+		stats.exportedCount++
+		log.Printf("[PLEX-EXPORT] Exported %s -> %s", label, exportPath)
 		GlobalScheduler.UpdateProgress(ServicePlexExport, i+1, len(pending), fmt.Sprintf("Exported %s", label))
 	}
+
+	log.Printf("[PLEX-EXPORT] Run summary: pending=%d exported=%d failed=%d missing_rd_torrent_id=%d missing_source=%d",
+		stats.pendingCount, stats.exportedCount, stats.failedCount, stats.missingRDCount, stats.missingFileCount)
 
 	return firstErr
 }
@@ -161,11 +185,13 @@ func (p *PlexExporter) exportSingle(ctx context.Context, cfg *settings.Settings,
 	if err != nil {
 		return "", err
 	}
+	log.Printf("[PLEX-EXPORT] Resolved source path for cache_id=%d: %s", cached.ID, sourcePath)
 
 	destPath, sectionID, err := p.buildDestinationPath(ctx, cfg, cached, sourcePath)
 	if err != nil {
 		return "", err
 	}
+	log.Printf("[PLEX-EXPORT] Computed destination for cache_id=%d: %s", cached.ID, destPath)
 
 	if err := ensureDir(filepath.Dir(destPath)); err != nil {
 		return "", fmt.Errorf("create destination directory: %w", err)
@@ -189,11 +215,14 @@ func (p *PlexExporter) resolveSourcePath(ctx context.Context, cfg *settings.Sett
 	if rdMount == "." || rdMount == "" {
 		return "", fmt.Errorf("plex export rd mount path is required")
 	}
+	log.Printf("[PLEX-EXPORT] Looking for source file under RD mount %s for cache_id=%d torrent_id=%q", rdMount, cached.ID, cached.RDTorrentID)
 
 	info, err := p.rdClient.GetTorrentInfo(ctx, cached.RDTorrentID)
 	if err != nil {
 		return "", fmt.Errorf("load rd torrent info: %w", err)
 	}
+	log.Printf("[PLEX-EXPORT] RD torrent info for cache_id=%d: filename=%q status=%q links=%d",
+		cached.ID, info.Filename, info.Status, len(info.Links))
 
 	if stat, statErr := os.Stat(rdMount); statErr != nil || !stat.IsDir() {
 		if statErr != nil {
@@ -213,6 +242,7 @@ func (p *PlexExporter) resolveSourcePath(ctx context.Context, cfg *settings.Sett
 	for _, candidate := range candidates {
 		resolved, ok := resolveCandidatePath(candidate)
 		if ok {
+			log.Printf("[PLEX-EXPORT] Matched direct candidate for cache_id=%d: %s", cached.ID, resolved)
 			return resolved, nil
 		}
 	}
@@ -224,6 +254,7 @@ func (p *PlexExporter) resolveSourcePath(ctx context.Context, cfg *settings.Sett
 	if match == "" {
 		return "", fmt.Errorf("could not locate mounted RD file for torrent %s", cached.RDTorrentID)
 	}
+	log.Printf("[PLEX-EXPORT] Matched fallback candidate for cache_id=%d: %s", cached.ID, match)
 	return match, nil
 }
 
@@ -323,13 +354,16 @@ func (p *PlexExporter) ensureSymlink(sourcePath, destPath string) error {
 				absCurrent, _ := filepath.Abs(currentTarget)
 				absSource, _ := filepath.Abs(sourcePath)
 				if absCurrent == absSource || currentTarget == sourcePath {
+					log.Printf("[PLEX-EXPORT] Existing symlink already correct: %s -> %s", destPath, sourcePath)
 					return nil
 				}
 			}
 			if removeErr := os.Remove(destPath); removeErr != nil {
 				return fmt.Errorf("replace existing symlink: %w", removeErr)
 			}
+			log.Printf("[PLEX-EXPORT] Replacing existing symlink at %s", destPath)
 		} else {
+			log.Printf("[PLEX-EXPORT] Destination already exists as regular file, leaving untouched: %s", destPath)
 			return nil
 		}
 	} else if !os.IsNotExist(err) {
@@ -339,6 +373,7 @@ func (p *PlexExporter) ensureSymlink(sourcePath, destPath string) error {
 	if err := os.Symlink(sourcePath, destPath); err != nil {
 		return fmt.Errorf("create symlink: %w", err)
 	}
+	log.Printf("[PLEX-EXPORT] Created symlink: %s -> %s", destPath, sourcePath)
 	return nil
 }
 
