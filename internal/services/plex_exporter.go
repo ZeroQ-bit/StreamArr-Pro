@@ -497,40 +497,46 @@ func findBestMountedMatch(root, torrentName string, cached *models.CachedStream,
 		name := strings.ToLower(d.Name())
 		normalizedName := normalizeMatchString(name)
 		score := 0
-		strongSignal := false
+		torrentSignal := false
+		titleSignal := false
+		yearSignal := false
+		hashSignal := false
+		episodeSignal := false
 
 		if torrentBase != "" && name == torrentBase {
 			score += 100
-			strongSignal = true
+			torrentSignal = true
 		}
 		if torrentBase != "" && strings.Contains(name, torrentBase) {
 			score += 50
-			strongSignal = true
+			torrentSignal = true
 		}
 		if normalizedTorrentBase != "" && normalizedName == normalizedTorrentBase {
 			score += 90
-			strongSignal = true
+			torrentSignal = true
 		}
 		if normalizedTorrentBase != "" && strings.Contains(normalizedName, normalizedTorrentBase) {
 			score += 40
-			strongSignal = true
+			torrentSignal = true
 		}
 		if normalizedMediaTitle != "" && strings.Contains(normalizedName, normalizedMediaTitle) {
 			score += 35
-			strongSignal = true
+			titleSignal = true
 		}
 		if yearToken != "" && strings.Contains(normalizedName, yearToken) {
 			score += 10
+			yearSignal = true
 		}
 		if cached.StreamHash != "" && strings.Contains(name, strings.ToLower(cached.StreamHash)) {
 			score += 25
-			strongSignal = true
+			hashSignal = true
 		}
 		if episodeToken != "" && strings.Contains(name, episodeToken) {
 			score += 20
-			strongSignal = true
+			episodeSignal = true
 		}
 
+		strongSignal := torrentSignal || hashSignal || episodeSignal || (titleSignal && (yearToken == "" || yearSignal))
 		if score == 0 || !strongSignal {
 			return nil
 		}
