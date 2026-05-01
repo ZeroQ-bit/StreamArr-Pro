@@ -248,12 +248,15 @@ func (p *PlexExporter) buildDestinationPath(ctx context.Context, cfg *settings.S
 		if year == 0 && movie.ReleaseDate != nil {
 			year = movie.ReleaseDate.Year()
 		}
-		folderName := title
-		fileName := title
+		folderBase := title
 		if year > 0 {
-			folderName = fmt.Sprintf("%s (%d)", title, year)
-			fileName = folderName
+			folderBase = fmt.Sprintf("%s (%d)", title, year)
 		}
+		folderName := folderBase
+		if movie.TMDBID > 0 {
+			folderName = fmt.Sprintf("%s {tmdb-%d}", folderBase, movie.TMDBID)
+		}
+		fileName := folderBase
 		return filepath.Join(root, folderName, fileName+ext), strings.TrimSpace(cfg.PlexMoviesSectionID), nil
 
 	case "series":
@@ -270,9 +273,13 @@ func (p *PlexExporter) buildDestinationPath(ctx context.Context, cfg *settings.S
 		if year == 0 && series.FirstAirDate != nil {
 			year = series.FirstAirDate.Year()
 		}
-		showFolder := title
+		showBase := title
 		if year > 0 {
-			showFolder = fmt.Sprintf("%s (%d)", title, year)
+			showBase = fmt.Sprintf("%s (%d)", title, year)
+		}
+		showFolder := showBase
+		if tvdbID := p.resolveSeriesTVDBID(ctx, cfg, series); tvdbID > 0 {
+			showFolder = fmt.Sprintf("%s {tvdb-%d}", showBase, tvdbID)
 		}
 		seasonFolder := fmt.Sprintf("Season %02d", cached.Season)
 		fileName := fmt.Sprintf("%s - s%02de%02d%s", title, cached.Season, cached.Episode, ext)
@@ -281,6 +288,31 @@ func (p *PlexExporter) buildDestinationPath(ctx context.Context, cfg *settings.S
 	default:
 		return "", "", fmt.Errorf("unsupported media type %q", cached.MediaType)
 	}
+}
+
+func (p *PlexExporter) resolveSeriesTVDBID(ctx context.Context, cfg *settings.Settings, series *models.Series) int {
+	if series == nil {
+		return 0
+	}
+	if series.Metadata != nil {
+		if tvdbID := metadataInt(series.Metadata["tvdb_id"]); tvdbID > 0 {
+			return tvdbID
+		}
+	}
+	if series.TMDBID <= 0 {
+		return 0
+	}
+	apiKey := strings.TrimSpace(cfg.TMDBAPIKey)
+	if apiKey == "" {
+		return 0
+	}
+	tmdbClient := NewTMDBClient(apiKey)
+	externalIDs, err := tmdbClient.GetSeriesExternalIDs(ctx, series.TMDBID)
+	if err != nil {
+		log.Printf("[PLEX-EXPORT] Could not resolve TVDB ID for %s: %v", series.Title, err)
+		return 0
+	}
+	return externalIDs.TVDBID
 }
 
 func (p *PlexExporter) ensureSymlink(sourcePath, destPath string) error {
@@ -507,6 +539,21 @@ func truncateString(value string, maxLen int) string {
 		return value
 	}
 	return value[:maxLen]
+}
+
+func metadataInt(value interface{}) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int32:
+		return int(v)
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
 }
 
 func maxInt(a, b int) int {
