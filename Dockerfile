@@ -73,8 +73,6 @@ RUN case "${TARGETARCH}" in \
     esac && \
     wget -O /tmp/zurg.zip "https://github.com/debridmediamanager/zurg-testing/releases/download/v0.9.3-final/zurg-v0.9.3-final-linux-${ZURG_ARCH}.zip" && \
     unzip -j /tmp/zurg.zip -d /usr/local/bin && \
-    ZURG_BIN="$(find /usr/local/bin -maxdepth 1 -type f -name 'zurg*' | head -n 1)" && \
-    mv "${ZURG_BIN}" /usr/local/bin/zurg && \
     chmod +x /usr/local/bin/zurg && \
     printf 'user_allow_other\n' > /etc/fuse.conf && \
     rm -f /tmp/zurg.zip
