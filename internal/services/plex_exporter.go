@@ -247,7 +247,8 @@ func (p *PlexExporter) resolveSourcePath(ctx context.Context, cfg *settings.Sett
 		}
 	}
 
-	match, err := findBestMountedMatch(rdMount, info.Filename, cached)
+	hintTitle, hintYear := p.buildMediaSearchHints(ctx, cached)
+	match, err := findBestMountedMatch(rdMount, info.Filename, cached, hintTitle, hintYear)
 	if err != nil {
 		return "", err
 	}
@@ -256,6 +257,32 @@ func (p *PlexExporter) resolveSourcePath(ctx context.Context, cfg *settings.Sett
 	}
 	log.Printf("[PLEX-EXPORT] Matched fallback candidate for cache_id=%d: %s", cached.ID, match)
 	return match, nil
+}
+
+func (p *PlexExporter) buildMediaSearchHints(ctx context.Context, cached *models.CachedStream) (string, int) {
+	switch cached.MediaType {
+	case "movie":
+		if cached.MovieID > 0 {
+			if movie, err := p.movieStore.Get(ctx, int64(cached.MovieID)); err == nil && movie != nil {
+				year := movie.Year
+				if year == 0 && movie.ReleaseDate != nil {
+					year = movie.ReleaseDate.Year()
+				}
+				return movie.Title, year
+			}
+		}
+	case "series":
+		if cached.SeriesID > 0 {
+			if series, err := p.seriesStore.Get(ctx, int64(cached.SeriesID)); err == nil && series != nil {
+				year := series.Year
+				if year == 0 && series.FirstAirDate != nil {
+					year = series.FirstAirDate.Year()
+				}
+				return series.Title, year
+			}
+		}
+	}
+	return "", 0
 }
 
 func (p *PlexExporter) buildDestinationPath(ctx context.Context, cfg *settings.Settings, cached *models.CachedStream, sourcePath string) (string, string, error) {
@@ -425,8 +452,14 @@ func resolveCandidatePath(path string) (string, bool) {
 	return path, true
 }
 
-func findBestMountedMatch(root, torrentName string, cached *models.CachedStream) (string, error) {
+func findBestMountedMatch(root, torrentName string, cached *models.CachedStream, mediaTitle string, mediaYear int) (string, error) {
 	torrentBase := strings.ToLower(filepath.Base(strings.TrimSpace(torrentName)))
+	normalizedTorrentBase := normalizeMatchString(torrentBase)
+	normalizedMediaTitle := normalizeMatchString(mediaTitle)
+	yearToken := ""
+	if mediaYear > 0 {
+		yearToken = strconv.Itoa(mediaYear)
+	}
 	episodeToken := ""
 	if cached.MediaType == "series" {
 		episodeToken = fmt.Sprintf("s%02de%02d", cached.Season, cached.Episode)
@@ -444,6 +477,7 @@ func findBestMountedMatch(root, torrentName string, cached *models.CachedStream)
 			return nil
 		}
 		name := strings.ToLower(d.Name())
+		normalizedName := normalizeMatchString(name)
 		score := 0
 
 		if torrentBase != "" && name == torrentBase {
@@ -451,6 +485,18 @@ func findBestMountedMatch(root, torrentName string, cached *models.CachedStream)
 		}
 		if torrentBase != "" && strings.Contains(name, torrentBase) {
 			score += 50
+		}
+		if normalizedTorrentBase != "" && normalizedName == normalizedTorrentBase {
+			score += 90
+		}
+		if normalizedTorrentBase != "" && strings.Contains(normalizedName, normalizedTorrentBase) {
+			score += 40
+		}
+		if normalizedMediaTitle != "" && strings.Contains(normalizedName, normalizedMediaTitle) {
+			score += 35
+		}
+		if yearToken != "" && strings.Contains(normalizedName, yearToken) {
+			score += 10
 		}
 		if cached.StreamHash != "" && strings.Contains(name, strings.ToLower(cached.StreamHash)) {
 			score += 25
@@ -567,6 +613,24 @@ func sanitizePathComponent(value string) string {
 	value = replacer.Replace(value)
 	value = strings.Join(strings.Fields(value), " ")
 	return strings.TrimSpace(value)
+}
+
+func normalizeMatchString(value string) string {
+	value = strings.ToLower(value)
+	var b strings.Builder
+	lastWasSpace := false
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastWasSpace = false
+			continue
+		}
+		if !lastWasSpace {
+			b.WriteByte(' ')
+			lastWasSpace = true
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func truncateString(value string, maxLen int) string {
