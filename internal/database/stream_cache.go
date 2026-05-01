@@ -569,6 +569,64 @@ func (s *StreamCacheStore) MarkPlexExportFailedByID(ctx context.Context, cacheID
 	return nil
 }
 
+func (s *StreamCacheStore) ResetRDLibraryByCacheID(ctx context.Context, cacheID int, exportErr string) error {
+	query := `
+		UPDATE media_streams
+		SET rd_library_added = false,
+		    rd_torrent_id = NULL,
+		    rd_library_added_at = NULL,
+		    plex_exported = false,
+		    plex_export_path = '',
+		    plex_exported_at = NULL,
+		    plex_export_error = $2,
+		    updated_at = NOW()
+		WHERE id = $1
+	`
+
+	result, err := s.db.ExecContext(ctx, query, cacheID, exportErr)
+	if err != nil {
+		return fmt.Errorf("failed to reset RD library state: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("no stream found for cache id %d", cacheID)
+	}
+
+	return nil
+}
+
+func (s *StreamCacheStore) MarkUnavailableByCacheID(ctx context.Context, cacheID int, exportErr string) error {
+	query := `
+		UPDATE media_streams
+		SET is_available = false,
+		    rd_library_added = false,
+		    rd_torrent_id = NULL,
+		    rd_library_added_at = NULL,
+		    plex_exported = false,
+		    plex_export_path = '',
+		    plex_exported_at = NULL,
+		    plex_export_error = $2,
+		    last_checked = NOW(),
+		    check_count = check_count + 1,
+		    next_check_at = NOW() + INTERVAL '1 day',
+		    updated_at = NOW()
+		WHERE id = $1
+	`
+
+	result, err := s.db.ExecContext(ctx, query, cacheID, exportErr)
+	if err != nil {
+		return fmt.Errorf("failed to mark cache entry unavailable: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("no stream found for cache id %d", cacheID)
+	}
+
+	return nil
+}
+
 // GetStreamsWithUpgradesAvailable retrieves streams that have upgrades available
 func (s *StreamCacheStore) GetStreamsWithUpgradesAvailable(ctx context.Context, limit int) ([]*models.CachedStream, error) {
 	query := fmt.Sprintf(`

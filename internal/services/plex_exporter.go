@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -35,6 +36,29 @@ type plexExportStats struct {
 	failedCount      int
 	missingRDCount   int
 	missingFileCount int
+	resetRDCount     int
+	retiredCount     int
+}
+
+type sourceResolutionError struct {
+	cause      error
+	rdFilename string
+	rdStatus   string
+	rdLinks    int
+}
+
+func (e *sourceResolutionError) Error() string {
+	if e == nil || e.cause == nil {
+		return ""
+	}
+	return e.cause.Error()
+}
+
+func (e *sourceResolutionError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
 }
 
 func NewPlexExporter(
@@ -122,8 +146,8 @@ func (p *PlexExporter) ExportPending(ctx context.Context) error {
 
 	GlobalScheduler.UpdateProgress(ServicePlexExport, 0, len(pending), "Exporting cached items to Plex")
 
-	var firstErr error
 	stats := plexExportStats{pendingCount: len(pending)}
+	var serviceErr error
 	for i, cached := range pending {
 		label := fmt.Sprintf("%s #%d", cached.MediaType, cached.MediaID)
 		if cached.MediaType == "movie" {
@@ -142,9 +166,6 @@ func (p *PlexExporter) ExportPending(ctx context.Context) error {
 
 		exportPath, exportErr := p.exportSingle(ctx, cfg, cached)
 		if exportErr != nil {
-			if firstErr == nil {
-				firstErr = exportErr
-			}
 			stats.failedCount++
 			if strings.Contains(exportErr.Error(), "missing rd torrent id") {
 				stats.missingRDCount++
@@ -153,13 +174,28 @@ func (p *PlexExporter) ExportPending(ctx context.Context) error {
 				stats.missingFileCount++
 			}
 			log.Printf("[PLEX-EXPORT] Failed to export %s: %v", label, exportErr)
-			_ = p.streamCache.MarkPlexExportFailedByID(ctx, cached.ID, truncateString(exportErr.Error(), 500))
+			handled, handleErr := p.handleExportFailure(ctx, cached, label, exportErr)
+			if handleErr != nil {
+				if serviceErr == nil {
+					serviceErr = handleErr
+				}
+				log.Printf("[PLEX-EXPORT] Failed to persist export failure state for %s: %v", label, handleErr)
+			}
+			switch handled {
+			case "reset-rd":
+				stats.resetRDCount++
+			case "retired":
+				stats.retiredCount++
+			}
+			if serviceErr == nil && isServiceLevelPlexExportError(exportErr) {
+				serviceErr = exportErr
+			}
 			continue
 		}
 
 		if err := p.streamCache.MarkPlexExportedByID(ctx, cached.ID, exportPath); err != nil {
-			if firstErr == nil {
-				firstErr = err
+			if serviceErr == nil {
+				serviceErr = err
 			}
 			log.Printf("[PLEX-EXPORT] Failed to mark export complete for %s: %v", label, err)
 			continue
@@ -170,15 +206,19 @@ func (p *PlexExporter) ExportPending(ctx context.Context) error {
 		GlobalScheduler.UpdateProgress(ServicePlexExport, i+1, len(pending), fmt.Sprintf("Exported %s", label))
 	}
 
-	log.Printf("[PLEX-EXPORT] Run summary: pending=%d exported=%d failed=%d missing_rd_torrent_id=%d missing_source=%d",
-		stats.pendingCount, stats.exportedCount, stats.failedCount, stats.missingRDCount, stats.missingFileCount)
+	log.Printf("[PLEX-EXPORT] Run summary: pending=%d exported=%d failed=%d missing_rd_torrent_id=%d missing_source=%d reset_rd=%d retired=%d",
+		stats.pendingCount, stats.exportedCount, stats.failedCount, stats.missingRDCount, stats.missingFileCount, stats.resetRDCount, stats.retiredCount)
 
-	if stats.exportedCount > 0 && stats.failedCount > 0 {
-		log.Printf("[PLEX-EXPORT] Completed with partial failures; returning success so the scheduler reflects the healthy export run")
+	if serviceErr != nil {
+		return serviceErr
+	}
+
+	if stats.failedCount > 0 {
+		log.Printf("[PLEX-EXPORT] Completed with item-level skips/failures; returning success so the scheduler reflects exporter health")
 		return nil
 	}
 
-	return firstErr
+	return nil
 }
 
 func (p *PlexExporter) exportSingle(ctx context.Context, cfg *settings.Settings, cached *models.CachedStream) (string, error) {
@@ -225,7 +265,9 @@ func (p *PlexExporter) resolveSourcePath(ctx context.Context, cfg *settings.Sett
 
 	info, err := p.rdClient.GetTorrentInfo(ctx, cached.RDTorrentID)
 	if err != nil {
-		return "", fmt.Errorf("load rd torrent info: %w", err)
+		return "", &sourceResolutionError{
+			cause: fmt.Errorf("load rd torrent info: %w", err),
+		}
 	}
 	log.Printf("[PLEX-EXPORT] RD torrent info for cache_id=%d: filename=%q status=%q links=%d",
 		cached.ID, info.Filename, info.Status, len(info.Links))
@@ -238,9 +280,19 @@ func (p *PlexExporter) resolveSourcePath(ctx context.Context, cfg *settings.Sett
 	}
 	if len(availableRoots) == 0 {
 		if _, statErr := os.Stat(rdMount); statErr != nil {
-			return "", fmt.Errorf("rd mount path unavailable: %w", statErr)
+			return "", &sourceResolutionError{
+				cause:      fmt.Errorf("rd mount path unavailable: %w", statErr),
+				rdFilename: info.Filename,
+				rdStatus:   info.Status,
+				rdLinks:    len(info.Links),
+			}
 		}
-		return "", fmt.Errorf("rd mount path is not a directory")
+		return "", &sourceResolutionError{
+			cause:      fmt.Errorf("rd mount path is not a directory"),
+			rdFilename: info.Filename,
+			rdStatus:   info.Status,
+			rdLinks:    len(info.Links),
+		}
 	}
 
 	hintTitle, hintYear := p.buildMediaSearchHints(ctx, cached)
@@ -274,7 +326,12 @@ func (p *PlexExporter) resolveSourcePath(ctx context.Context, cfg *settings.Sett
 		log.Printf("[PLEX-EXPORT] No source match found under %s for cache_id=%d; top-level entries: %s", root, cached.ID, summarizeTopLevelEntries(root, 12))
 	}
 
-	return "", fmt.Errorf("could not locate mounted RD file for torrent %s", cached.RDTorrentID)
+	return "", &sourceResolutionError{
+		cause:      fmt.Errorf("could not locate mounted RD file for torrent %s", cached.RDTorrentID),
+		rdFilename: info.Filename,
+		rdStatus:   info.Status,
+		rdLinks:    len(info.Links),
+	}
 }
 
 func (p *PlexExporter) buildMediaSearchHints(ctx context.Context, cached *models.CachedStream) (string, int) {
@@ -620,6 +677,88 @@ func isVideoFile(path string) bool {
 	default:
 		return false
 	}
+}
+
+func isKnownNonMediaFilename(name string) bool {
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(name))) {
+	case ".txt", ".jpg", ".jpeg", ".png", ".gif", ".nfo", ".srt", ".sub", ".ass", ".ssa", ".sfv":
+		return true
+	default:
+		return false
+	}
+}
+
+func isServiceLevelPlexExportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if strings.Contains(err.Error(), "rd mount path unavailable") || strings.Contains(err.Error(), "rd mount path is not a directory") {
+		return true
+	}
+	return false
+}
+
+func (p *PlexExporter) handleExportFailure(ctx context.Context, cached *models.CachedStream, label string, exportErr error) (string, error) {
+	action := "failed"
+	message := truncateString(exportErr.Error(), 500)
+
+	var srcErr *sourceResolutionError
+	if errors.As(exportErr, &srcErr) {
+		if shouldRetireUnplayableSource(srcErr) {
+			action = "retired"
+			message = truncateString(fmt.Sprintf("retired unplayable rd source: %s", exportErr.Error()), 500)
+			if err := p.streamCache.MarkUnavailableByCacheID(ctx, cached.ID, message); err != nil {
+				return action, err
+			}
+			log.Printf("[PLEX-EXPORT] Retired %s from export queue because RD torrent payload is not playable", label)
+			return action, nil
+		}
+		if shouldResetRDLibraryState(srcErr) {
+			action = "reset-rd"
+			message = truncateString(fmt.Sprintf("reset rd state after export failure: %s", exportErr.Error()), 500)
+			if err := p.streamCache.ResetRDLibraryByCacheID(ctx, cached.ID, message); err != nil {
+				return action, err
+			}
+			log.Printf("[PLEX-EXPORT] Reset RD library state for %s so a future sync can rebuild it cleanly", label)
+			return action, nil
+		}
+	}
+
+	if err := p.streamCache.MarkPlexExportFailedByID(ctx, cached.ID, message); err != nil {
+		return action, err
+	}
+	return action, nil
+}
+
+func shouldRetireUnplayableSource(err *sourceResolutionError) bool {
+	if err == nil {
+		return false
+	}
+	if isKnownNonMediaFilename(err.rdFilename) {
+		return true
+	}
+	if strings.Contains(err.Error(), "could not locate mounted RD file") &&
+		strings.EqualFold(strings.TrimSpace(err.rdStatus), "downloaded") &&
+		err.rdLinks > 0 &&
+		isKnownNonMediaFilename(err.rdFilename) {
+		return true
+	}
+	return false
+}
+
+func shouldResetRDLibraryState(err *sourceResolutionError) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "unknown_ressource") || strings.Contains(msg, "status 404") {
+		return true
+	}
+	status := strings.ToLower(strings.TrimSpace(err.rdStatus))
+	if status == "error" {
+		return true
+	}
+	return false
 }
 
 func ensureDir(path string) error {
