@@ -50,7 +50,16 @@ FROM alpine:3.19
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata wget unzip rclone fuse3
+
+# Install zurg public binary used for the internal RD mount helper
+RUN wget -O /tmp/zurg.zip https://github.com/debridmediamanager/zurg-testing/releases/download/v0.9.3-final/zurg-v0.9.3-final-linux-amd64.zip && \
+    unzip -j /tmp/zurg.zip -d /usr/local/bin && \
+    ZURG_BIN="$(find /usr/local/bin -maxdepth 1 -type f -name 'zurg*' | head -n 1)" && \
+    mv "${ZURG_BIN}" /usr/local/bin/zurg && \
+    chmod +x /usr/local/bin/zurg && \
+    printf 'user_allow_other\n' > /etc/fuse.conf && \
+    rm -f /tmp/zurg.zip
 
 # Copy binaries from builder
 COPY --from=backend-builder /app/bin/server /app/bin/server
@@ -77,7 +86,7 @@ RUN dos2unix update.sh build.sh start.sh stop.sh entrypoint.sh load_proxies.sh &
     chmod +x update.sh build.sh start.sh stop.sh entrypoint.sh load_proxies.sh
 
 # Create directories
-RUN mkdir -p /app/logs /app/cache /app/sessions
+RUN mkdir -p /app/logs /app/cache /app/sessions /app/rd-mount /mnt/rd
 
 # Expose port
 EXPOSE 8080

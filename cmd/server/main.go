@@ -129,6 +129,9 @@ func main() {
 	// Override config with ALL settings from database
 	appSettings := settingsManager.Get()
 
+	rdMountManager := services.NewRDMountManager(settingsManager)
+	rdMountManager.Start()
+
 	// API Keys
 	if appSettings.TMDBAPIKey != "" {
 		cfg.TMDBAPIKey = appSettings.TMDBAPIKey
@@ -875,6 +878,7 @@ func main() {
 
 	// Stop background workers
 	workerCancel()
+	rdMountManager.Stop()
 
 	// Graceful shutdown with 30 second timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
