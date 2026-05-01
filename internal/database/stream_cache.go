@@ -612,6 +612,7 @@ func scanCachedStream(scanner rowScanner, cached *models.CachedStream) error {
 	var seriesID sql.NullInt64
 	var season sql.NullInt64
 	var episode sql.NullInt64
+	var rdTorrentID sql.NullString
 	var rdLibraryAddedAt sql.NullTime
 	var plexExportedAt sql.NullTime
 
@@ -639,7 +640,7 @@ func scanCachedStream(scanner rowScanner, cached *models.CachedStream) error {
 		&cached.IsAvailable,
 		&cached.UpgradeAvailable,
 		&cached.RDLibraryAdded,
-		&cached.RDTorrentID,
+		&rdTorrentID,
 		&rdLibraryAddedAt,
 		&cached.PlexExported,
 		&cached.PlexExportPath,
@@ -650,6 +651,12 @@ func scanCachedStream(scanner rowScanner, cached *models.CachedStream) error {
 		&cached.UpdatedAt,
 	); err != nil {
 		return err
+	}
+
+	if rdTorrentID.Valid {
+		cached.RDTorrentID = rdTorrentID.String
+	} else {
+		cached.RDTorrentID = ""
 	}
 
 	if rdLibraryAddedAt.Valid {
