@@ -417,23 +417,17 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 				continue
 			}
 
-			// Extract hashes from URL if InfoHash is empty (happens with Torrentio+RD)
+			// Extract hashes from URL if InfoHash is empty or malformed (happens with Torrentio+RD)
 			hashes := make([]string, 0)
 			for i := range providerStreams {
 				hash := providerStreams[i].InfoHash
-				if hash == "" && providerStreams[i].URL != "" {
-					// Extract hash from URL (40-character hex string)
-					parts := []rune(providerStreams[i].URL)
-					for j := 0; j < len(parts)-40; j++ {
-						candidate := string(parts[j : j+40])
-						if len(candidate) == 40 {
-							hash = candidate
-							providerStreams[i].InfoHash = hash
-							break
-						}
+				if !isValidHash(hash) && providerStreams[i].URL != "" {
+					hash = extractHashFromURL(providerStreams[i].URL)
+					if isValidHash(hash) {
+						providerStreams[i].InfoHash = hash
 					}
 				}
-				if hash != "" {
+				if isValidHash(hash) {
 					hashes = append(hashes, hash)
 				}
 			}
@@ -480,15 +474,8 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 
 			// Extract hash
 			hash := bestStream.InfoHash
-			if hash == "" && bestStream.URL != "" {
-				parts := []rune(bestStream.URL)
-				for i := 0; i < len(parts)-40; i++ {
-					candidate := string(parts[i : i+40])
-					if len(candidate) == 40 {
-						hash = candidate
-						break
-					}
-				}
+			if !isValidHash(hash) && bestStream.URL != "" {
+				hash = extractHashFromURL(bestStream.URL)
 			}
 
 			// Parse quality details
@@ -702,11 +689,22 @@ func (cs *CacheScanner) syncPendingRealDebridLibraryAddsWithMode(ctx context.Con
 		syncedThisBatch := 0
 		for _, stream := range pending {
 			label := stream.MediaType + " " + strconv.Itoa(stream.MediaID)
+			hash := stream.StreamHash
+			if !isValidHash(hash) {
+				hash = extractHashFromURL(stream.StreamURL)
+				if isValidHash(hash) {
+					log.Printf("[CACHE-SCANNER] Recovered valid hash from stream URL for %s", label)
+				}
+			}
+			if !isValidHash(hash) {
+				log.Printf("[CACHE-SCANNER] Skipping cached stream %s %d because no valid torrent hash is available", stream.MediaType, stream.MediaID)
+				continue
+			}
 			fileIdx := extractFileIndexFromStreamURL(stream.StreamURL)
 			if err := cs.maybeAddCachedStreamToRealDebrid(
 				ctx,
 				label,
-				stream.StreamHash,
+				hash,
 				fileIdx,
 				func(torrentID string) error {
 					return cs.cacheStore.MarkRealDebridLibraryAddedByID(ctx, stream.ID, torrentID)
@@ -780,4 +778,30 @@ func extractFileIndexFromStreamURL(streamURL string) int {
 	}
 
 	return 0
+}
+
+func extractHashFromURL(raw string) string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case '/', '?', '&', '=', ':', '.', '-', '_':
+			return true
+		default:
+			return false
+		}
+	})
+	for _, part := range parts {
+		if isValidHash(part) {
+			return part
+		}
+	}
+
+	runes := []rune(raw)
+	for i := 0; i <= len(runes)-40; i++ {
+		candidate := string(runes[i : i+40])
+		if isValidHash(candidate) {
+			return candidate
+		}
+	}
+
+	return ""
 }
