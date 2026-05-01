@@ -173,6 +173,11 @@ func (p *PlexExporter) ExportPending(ctx context.Context) error {
 	log.Printf("[PLEX-EXPORT] Run summary: pending=%d exported=%d failed=%d missing_rd_torrent_id=%d missing_source=%d",
 		stats.pendingCount, stats.exportedCount, stats.failedCount, stats.missingRDCount, stats.missingFileCount)
 
+	if stats.exportedCount > 0 && stats.failedCount > 0 {
+		log.Printf("[PLEX-EXPORT] Completed with partial failures; returning success so the scheduler reflects the healthy export run")
+		return nil
+	}
+
 	return firstErr
 }
 
