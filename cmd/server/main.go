@@ -777,6 +777,7 @@ func main() {
 
 	// Initialize cache scanner service (finds upgrades and fills empty cache)
 	var cacheScanner *api.CacheScanner
+	var plexExporter *services.PlexExporter
 	if streamCacheStore != nil && streamService != nil && debridService != nil && multiProvider != nil {
 		cacheScanner = api.NewCacheScanner(
 			movieStore,
@@ -789,6 +790,17 @@ func main() {
 		)
 		cacheScanner.Start() // Start automatic 7-day scanning
 		log.Println("✓ Cache scanner initialized (auto-scan: 7 days)")
+	}
+
+	if streamCacheStore != nil && settingsManager != nil {
+		plexExporter = services.NewPlexExporter(
+			movieStore,
+			seriesStore,
+			streamCacheStore,
+			settingsManager,
+		)
+		plexExporter.Start()
+		log.Println("✓ Plex exporter initialized")
 	}
 
 	// Initialize API handler with all components including Phase 1 services
@@ -811,6 +823,7 @@ func main() {
 		streamCacheStore,
 		streamService,
 		cacheScanner,
+		plexExporter,
 	)
 
 	// Create router and setup REST API routes

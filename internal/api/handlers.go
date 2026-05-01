@@ -75,6 +75,7 @@ type Handler struct {
 	streamCacheStore *database.StreamCacheStore
 	streamService    interface{} // Will be *streams.StreamService if initialized
 	cacheScanner     *CacheScanner
+	plexExporter     *services.PlexExporter
 }
 
 func toProviderAddons(addons []settings.StremioAddon) []providers.StremioAddon {
@@ -184,6 +185,7 @@ func NewHandlerWithComponents(
 	streamCacheStore *database.StreamCacheStore,
 	streamService interface{},
 	cacheScanner *CacheScanner,
+	plexExporter *services.PlexExporter,
 ) *Handler {
 	return &Handler{
 		movieStore:       movieStore,
@@ -204,6 +206,7 @@ func NewHandlerWithComponents(
 		streamCacheStore: streamCacheStore,
 		streamService:    streamService,
 		cacheScanner:     cacheScanner,
+		plexExporter:     plexExporter,
 	}
 }
 
@@ -216,6 +219,13 @@ func respondJSON(w http.ResponseWriter, status int, data interface{}) {
 
 func respondError(w http.ResponseWriter, status int, message string) {
 	respondJSON(w, status, map[string]string{"error": message})
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // ListMovies handles GET /api/movies
@@ -2535,6 +2545,15 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 			}()
 		}
 
+		if h.plexExporter != nil && !oldSettings.PlexExportEnabled && newSettings.PlexExportEnabled {
+			go func() {
+				log.Println("[Settings] Plex export enabled, starting background export...")
+				if err := h.plexExporter.ExportPending(context.Background()); err != nil {
+					log.Printf("[Settings] Plex export run failed: %v", err)
+				}
+			}()
+		}
+
 		// Log playlist filter changes
 		if oldSettings.OnlyCachedStreams != newSettings.OnlyCachedStreams {
 			if newSettings.OnlyCachedStreams {
@@ -3605,6 +3624,16 @@ func (h *Handler) runService(serviceName string) {
 				log.Println("[BalkanVOD] Import disabled in settings")
 				err = nil
 			}
+		}
+
+	case services.ServicePlexExport:
+		interval = 15 * time.Minute
+		if h.settingsManager != nil {
+			current := h.settingsManager.Get()
+			interval = time.Duration(maxInt(current.PlexExportIntervalMinutes, 1)) * time.Minute
+		}
+		if h.plexExporter != nil {
+			err = h.plexExporter.ExportPending(ctx)
 		}
 
 	default:
