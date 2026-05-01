@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -92,9 +93,11 @@ func (rd *RealDebrid) CheckCache(ctx context.Context, hashes []string) (map[stri
 func (rd *RealDebrid) GetStreamURL(ctx context.Context, hash string, fileIndex int) (string, error) {
 	// Step 1: Add magnet to Real-Debrid
 	magnetURL := fmt.Sprintf("magnet:?xt=urn:btih:%s", hash)
+	form := url.Values{}
+	form.Set("magnet", magnetURL)
 
 	addURL := fmt.Sprintf("%s/torrents/addMagnet", realDebridBaseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", addURL, strings.NewReader(fmt.Sprintf("magnet=%s", magnetURL)))
+	req, err := http.NewRequestWithContext(ctx, "POST", addURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("create add magnet request: %w", err)
 	}
@@ -165,8 +168,10 @@ func (rd *RealDebrid) GetStreamURL(ctx context.Context, hash string, fileIndex i
 
 	// Step 4: Unrestrict the link to get direct download URL
 	unrestrictURL := fmt.Sprintf("%s/unrestrict/link", realDebridBaseURL)
+	unrestrictForm := url.Values{}
+	unrestrictForm.Set("link", torrentInfo.Links[0])
 	unrestrictReq, err := http.NewRequestWithContext(ctx, "POST", unrestrictURL,
-		strings.NewReader(fmt.Sprintf("link=%s", torrentInfo.Links[0])))
+		strings.NewReader(unrestrictForm.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("create unrestrict request: %w", err)
 	}
@@ -212,9 +217,11 @@ func (rd *RealDebrid) GetAvailableFiles(ctx context.Context, hash string) ([]Tor
 // file; otherwise we select all files so the torrent is usable later.
 func (rd *RealDebrid) AddToLibrary(ctx context.Context, hash string, fileIndex int) (string, error) {
 	magnetURL := fmt.Sprintf("magnet:?xt=urn:btih:%s", hash)
+	form := url.Values{}
+	form.Set("magnet", magnetURL)
 
 	addURL := fmt.Sprintf("%s/torrents/addMagnet", realDebridBaseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", addURL, strings.NewReader(fmt.Sprintf("magnet=%s", magnetURL)))
+	req, err := http.NewRequestWithContext(ctx, "POST", addURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("create add magnet request: %w", err)
 	}

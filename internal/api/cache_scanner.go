@@ -713,8 +713,12 @@ func (cs *CacheScanner) syncPendingRealDebridLibraryAddsWithMode(ctx context.Con
 				},
 			); err != nil {
 				log.Printf("[CACHE-SCANNER] Failed to sync cached stream %s %d to Real-Debrid: %v", stream.MediaType, stream.MediaID, err)
-				if strings.Contains(strings.ToLower(err.Error()), "rate") {
+				errText := strings.ToLower(err.Error())
+				if strings.Contains(errText, "too_many_requests") || strings.Contains(errText, "error_code\": 34") || strings.Contains(errText, "rate") {
+					log.Printf("[CACHE-SCANNER] Real-Debrid rate limit reached, pausing library sync so we can resume cleanly later")
+					services.GlobalScheduler.UpdateProgress(services.ServiceRDLibrarySync, totalSynced, totalSynced+len(pending), "Paused by Real-Debrid rate limit")
 					time.Sleep(5 * time.Second)
+					return nil
 				}
 				continue
 			}
