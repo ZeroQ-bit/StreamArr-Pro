@@ -1300,6 +1300,9 @@ export default function Settings() {
   };
 
   const formatServiceName = (name: string) => {
+    if (name === "rd_library_sync") {
+      return "Real-Debrid Library Sync";
+    }
     return name
       .split("_")
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))

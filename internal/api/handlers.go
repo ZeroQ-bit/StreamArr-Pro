@@ -3626,6 +3626,12 @@ func (h *Handler) runService(serviceName string) {
 			}
 		}
 
+	case services.ServiceRDLibrarySync:
+		interval = 15 * time.Minute
+		if h.cacheScanner != nil {
+			err = h.cacheScanner.SyncPendingRealDebridLibraryAddsNow(ctx)
+		}
+
 	case services.ServicePlexExport:
 		interval = 15 * time.Minute
 		if h.settingsManager != nil {

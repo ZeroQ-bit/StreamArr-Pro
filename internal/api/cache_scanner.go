@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/Zerr0-C00L/StreamArr/internal/database"
 	"github.com/Zerr0-C00L/StreamArr/internal/models"
 	"github.com/Zerr0-C00L/StreamArr/internal/providers"
+	"github.com/Zerr0-C00L/StreamArr/internal/services"
 	"github.com/Zerr0-C00L/StreamArr/internal/services/debrid"
 	"github.com/Zerr0-C00L/StreamArr/internal/services/streams"
 	"github.com/Zerr0-C00L/StreamArr/internal/settings"
@@ -663,7 +665,19 @@ func (cs *CacheScanner) maybeAddCachedStreamToRealDebrid(ctx context.Context, la
 }
 
 func (cs *CacheScanner) syncPendingRealDebridLibraryAdds(ctx context.Context) error {
+	return cs.syncPendingRealDebridLibraryAddsWithMode(ctx, false)
+}
+
+func (cs *CacheScanner) SyncPendingRealDebridLibraryAddsNow(ctx context.Context) error {
+	return cs.syncPendingRealDebridLibraryAddsWithMode(ctx, true)
+}
+
+func (cs *CacheScanner) syncPendingRealDebridLibraryAddsWithMode(ctx context.Context, force bool) error {
 	const batchSize = 100
+
+	if !force && !cs.shouldAutoAddBestStreamsToRealDebrid() {
+		return nil
+	}
 
 	totalSynced := 0
 	for {
@@ -672,11 +686,18 @@ func (cs *CacheScanner) syncPendingRealDebridLibraryAdds(ctx context.Context) er
 			return err
 		}
 		if len(pending) == 0 {
+			if totalSynced == 0 {
+				log.Printf("[CACHE-SCANNER] Real-Debrid library sync found no pending cached streams")
+				services.GlobalScheduler.UpdateProgress(services.ServiceRDLibrarySync, 0, 0, "No pending cached streams to add to Real-Debrid")
+			}
 			if totalSynced > 0 {
 				log.Printf("[CACHE-SCANNER] Real-Debrid library sync complete: %d cached streams added", totalSynced)
+				services.GlobalScheduler.UpdateProgress(services.ServiceRDLibrarySync, totalSynced, totalSynced, fmt.Sprintf("Added %d cached streams to Real-Debrid", totalSynced))
 			}
 			return nil
 		}
+
+		services.GlobalScheduler.UpdateProgress(services.ServiceRDLibrarySync, totalSynced, totalSynced+len(pending), fmt.Sprintf("Syncing %d cached streams to Real-Debrid", len(pending)))
 
 		syncedThisBatch := 0
 		for _, stream := range pending {
@@ -700,6 +721,7 @@ func (cs *CacheScanner) syncPendingRealDebridLibraryAdds(ctx context.Context) er
 
 			totalSynced++
 			syncedThisBatch++
+			services.GlobalScheduler.UpdateProgress(services.ServiceRDLibrarySync, totalSynced, totalSynced+len(pending)-syncedThisBatch, fmt.Sprintf("Added %s to Real-Debrid", label))
 			if totalSynced%50 == 0 {
 				log.Printf("[CACHE-SCANNER] Real-Debrid library sync progress: %d streams added", totalSynced)
 			}
@@ -708,6 +730,7 @@ func (cs *CacheScanner) syncPendingRealDebridLibraryAdds(ctx context.Context) er
 
 		if syncedThisBatch == 0 {
 			log.Printf("[CACHE-SCANNER] Real-Debrid library sync paused: no items from the current batch could be added")
+			services.GlobalScheduler.UpdateProgress(services.ServiceRDLibrarySync, totalSynced, totalSynced+len(pending), "No items from the current batch could be added")
 			return nil
 		}
 	}
