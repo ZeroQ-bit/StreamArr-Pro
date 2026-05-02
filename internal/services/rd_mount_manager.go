@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	rdMountRoot       = "/mnt/rd"
+	rdMountRoot       = "/mount/rd"
 	rdMountStateDir   = "/app/rd-mount"
 	rdMountConfigPath = rdMountStateDir + "/zurg.yml"
 	rdMountRclonePath = rdMountStateDir + "/rclone.conf"
@@ -108,10 +108,13 @@ func (m *RDMountManager) startStack(token string) error {
 		return fmt.Errorf("rclone binary not found: %w", err)
 	}
 
+	// Clear any stale mount endpoint before we touch the shared mount root.
+	m.unmountIfNeeded()
+
 	if err := os.MkdirAll(rdMountStateDir, 0o755); err != nil {
 		return fmt.Errorf("create rd mount state dir: %w", err)
 	}
-	if err := os.MkdirAll(rdMountRoot, 0o755); err != nil {
+	if err := ensureDirectory(rdMountRoot, 0o755); err != nil {
 		return fmt.Errorf("create rd mount root: %w", err)
 	}
 
@@ -121,8 +124,6 @@ func (m *RDMountManager) startStack(token string) error {
 	if err := os.WriteFile(rdMountRclonePath, []byte(renderRcloneConfig()), 0o600); err != nil {
 		return fmt.Errorf("write rclone config: %w", err)
 	}
-
-	m.unmountIfNeeded()
 
 	zurgCmd := exec.Command("zurg", "-c", rdMountConfigPath)
 	zurgCmd.Stdout = prefixWriter("[RD-MOUNT:zurg] ")
@@ -197,6 +198,21 @@ func (m *RDMountManager) unmountIfNeeded() {
 		}
 	}
 	_ = exec.Command("umount", rdMountRoot).Run()
+	_ = exec.Command("umount", "-l", rdMountRoot).Run()
+}
+
+func ensureDirectory(path string, mode os.FileMode) error {
+	info, err := os.Stat(path)
+	if err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("%s exists but is not a directory", path)
+		}
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return err
+	}
+	return os.MkdirAll(path, mode)
 }
 
 func processAlive(cmd *exec.Cmd) bool {
