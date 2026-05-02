@@ -5,12 +5,12 @@
 </p>
 
 <p align="center">
-  <b>🎬 Self-hosted Media Server with Netflix-style UI</b>
+  <b>🎬 Self-hosted media library, IPTV server, and Debrid-backed Plex bridge</b>
 </p>
 
 <p align="center">
-  A powerful, self-hosted media management system that combines a beautiful Netflix-inspired interface<br>
-  with Stremio-compatible streaming providers. Perfect for organizing your Movies, TV Shows & Live TV.
+  StreamArr Pro combines a Netflix-style library UI, Stremio-compatible stream discovery,<br>
+  live TV / IPTV output, and Real-Debrid-backed export tools for Plex.
 </p>
 
 <p align="center">
@@ -42,6 +42,25 @@
 
 ---
 
+## 🧭 What StreamArr Pro Is
+
+StreamArr Pro is a self-hosted media manager that sits between discovery, cached stream sources, IPTV apps, and Plex:
+
+- **Library manager** for movies and shows using TMDB metadata
+- **Discovery layer** for Stremio-compatible providers such as Torrentio, Comet, and MediaFusion
+- **IPTV server** with Xtream Codes and M3U output for players like TiviMate and VLC
+- **Plex bridge** that can add cached Real-Debrid items to a Plex-visible filesystem path
+
+If you are using the Plex workflow, StreamArr is not meant to be a traditional downloader. It mounts the Real-Debrid library internally, resolves playable files, and exports them into Plex-facing folders so Plex can index them.
+
+## 🆕 What We Added Recently
+
+- **Built-in Real-Debrid mount stack** using Zurg + rclone inside StreamArr itself
+- **Plex export pipeline** that creates Plex-visible exported items without depending on Riven
+- **Recovery and filtering guards** for malformed hashes, junk torrents, and unreleased media
+- **Faster background services** for Real-Debrid sync, cache scanning, and Plex export
+- **Safer RD mount cache behavior** so the app does not silently fill the host disk with an oversized rclone VFS cache
+
 ## ✨ Key Features
 
 ### 🎬 Media Library
@@ -59,6 +78,13 @@
 - **Smart Fallback** — Automatically tries multiple providers until finding available streams
 - **Stream Selection** — View quality, file size, codec, seeders, and cache status
 - **Quality Filters** — Filter by resolution, exclude CAM/TS, set max file size
+
+### 🧩 Plex & Debrid Workflow
+- **Internal RD Mount** — StreamArr runs its own Zurg + rclone mount for Real-Debrid-backed exports
+- **No Riven Dependency** — The Plex export path works without requiring a separate Riven app on Umbrel
+- **Plex Export Service** — Turns cached library items into Plex-visible paths for Movies and Shows
+- **Safer Export Filtering** — Skips unreleased titles and retires obviously broken payloads such as subtitle-only or image-only results
+- **Configurable Workers** — RD library sync, cache scanning, and Plex export can run on short recurring intervals
 
 ### 📡 Live TV
 - **M3U Playlist Support** — Import your own IPTV sources
@@ -118,6 +144,8 @@ docker compose logs -f streamarr
 ### First-Time Setup
 - Open the app and create your first admin account
 - Add your TMDB API key in Settings to enable metadata lookups
+- Add your stream providers and optional Debrid credentials
+- If you use Plex export, point Plex libraries at the exported Movies / Shows paths used by your deployment
 
 ---
 
@@ -207,6 +235,12 @@ volumes:
 
 ---
 
+## 🔐 Security Notes
+
+- **API keys do not belong in the repository.** Add them through the UI or in a local `.env` file that is not committed.
+- `.env.example`, `docker-compose.yml`, and `systemd/` files in this repo only contain placeholders or example defaults.
+- If you fork or deploy StreamArr, change example JWT / password defaults before exposing the app outside your local network.
+
 ## ⚙️ Configuration
 
 ### 1. API Keys (Settings → API Keys)
@@ -235,6 +269,13 @@ Add Stremio-compatible provider URLs:
 - **Max File Size** — Skip oversized files
 - **Excluded Qualities** — CAM, TS, SCR, HDTS
 - **Language Filters** — Exclude unwanted languages
+
+### 4. Plex Export (Settings → Services)
+
+- **Real-Debrid Library Sync** adds cached library items into your RD library so they can be mounted
+- **Plex Export** resolves the mounted playable file and creates a Plex-visible export path
+- **Movies / Shows export roots** depend on your deployment target; on Umbrel these are typically mounted into the Plex container from the StreamArr export directory
+- **Important:** Plex export only works for items that resolve to playable files in the mounted RD library
 
 ---
 
@@ -282,6 +323,13 @@ http://YOUR-IP:8080/get.php?username=user&password=pass&type=m3u_plus&output=ts
 │         │           ┌──────────────┐    ┌─────────────────┐    │
 │         │           │   Providers  │───▶│   Real-Debrid   │    │
 │         │           │  (Torrentio) │    │   (Caching)     │    │
+│         │           └──────────────┘    └─────────────────┘    │
+│         │                                                       │
+│         │                   ▼                                   │
+│         │           ┌──────────────┐    ┌─────────────────┐    │
+│         │           │ Zurg+rclone  │───▶│   Plex Export   │    │
+│         │           │ Internal RD  │    │  Export Paths   │    │
+│         │           │    Mount     │    │  for Plex       │    │
 │         │           └──────────────┘    └─────────────────┘    │
 │         │                                                       │
 │         ▼                                                       │
@@ -374,6 +422,15 @@ docker compose down -v && docker compose up -d
 2. Prefer streams with ⚡ Cached badge
 3. Try lower quality (1080p instead of 4K)
 4. Try a different stream source
+</details>
+
+<details>
+<summary><b>Plex export is not finding files</b></summary>
+
+1. Verify your Real-Debrid API key is valid and the RD mount service is running
+2. Check that the item was successfully added to the Real-Debrid library first
+3. Confirm Plex is pointed at the exported Movies / Shows path, not the RD mount itself
+4. Some torrents are junk, incomplete, or non-playable and will be skipped on purpose
 </details>
 
 <details>
