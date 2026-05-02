@@ -20,6 +20,7 @@ const (
 	rdMountStateDir   = "/app/rd-mount"
 	rdMountConfigPath = rdMountStateDir + "/zurg.yml"
 	rdMountRclonePath = rdMountStateDir + "/rclone.conf"
+	rdMountCacheDir   = "/app/cache/rclone"
 	rdMountListenURL  = "http://127.0.0.1:9999/dav/"
 )
 
@@ -114,6 +115,9 @@ func (m *RDMountManager) startStack(token string) error {
 	if err := os.MkdirAll(rdMountStateDir, 0o755); err != nil {
 		return fmt.Errorf("create rd mount state dir: %w", err)
 	}
+	if err := os.MkdirAll(rdMountCacheDir, 0o755); err != nil {
+		return fmt.Errorf("create rd mount cache dir: %w", err)
+	}
 	if err := ensureDirectory(rdMountRoot, 0o755); err != nil {
 		return fmt.Errorf("create rd mount root: %w", err)
 	}
@@ -145,8 +149,10 @@ func (m *RDMountManager) startStack(token string) error {
 		"--config", rdMountRclonePath,
 		"--allow-other",
 		"--allow-non-empty",
+		"--cache-dir", rdMountCacheDir,
+		"--buffer-size", "32M",
 		"--dir-cache-time", "10s",
-		"--vfs-cache-mode", "full",
+		"--vfs-cache-mode", "off",
 	)
 	rcloneCmd.Stdout = prefixWriter("[RD-MOUNT:rclone] ")
 	rcloneCmd.Stderr = prefixWriter("[RD-MOUNT:rclone] ")
