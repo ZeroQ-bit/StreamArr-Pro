@@ -14,12 +14,12 @@ type StreamCacheStore struct {
 }
 
 const cachedStreamSelectColumns = `
-	id, media_type, media_id, movie_id, series_id, season, episode, stream_url, stream_hash, quality_score,
-	resolution, hdr_type, audio_format, source_type, file_size_gb,
-	codec, indexer, cached_at, last_checked, check_count,
-	is_available, upgrade_available, rd_library_added, rd_torrent_id, rd_library_added_at,
-	plex_exported, plex_export_path, plex_exported_at, plex_export_error,
-	next_check_at, created_at, updated_at
+	media_streams.id, media_streams.media_type, media_streams.media_id, media_streams.movie_id, media_streams.series_id, media_streams.season, media_streams.episode, media_streams.stream_url, media_streams.stream_hash, media_streams.quality_score,
+	media_streams.resolution, media_streams.hdr_type, media_streams.audio_format, media_streams.source_type, media_streams.file_size_gb,
+	media_streams.codec, media_streams.indexer, media_streams.cached_at, media_streams.last_checked, media_streams.check_count,
+	media_streams.is_available, media_streams.upgrade_available, media_streams.rd_library_added, media_streams.rd_torrent_id, media_streams.rd_library_added_at,
+	media_streams.plex_exported, media_streams.plex_export_path, media_streams.plex_exported_at, media_streams.plex_export_error,
+	media_streams.next_check_at, media_streams.created_at, media_streams.updated_at
 `
 
 // NewStreamCacheStore creates a new stream cache store
