@@ -3627,7 +3627,7 @@ func (h *Handler) runService(serviceName string) {
 		}
 
 	case services.ServiceRDLibrarySync:
-		interval = 15 * time.Minute
+		interval = 5 * time.Minute
 		if h.cacheScanner != nil {
 			err = h.cacheScanner.SyncPendingRealDebridLibraryAddsNow(ctx)
 		}

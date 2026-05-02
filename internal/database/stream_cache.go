@@ -460,9 +460,19 @@ func (s *StreamCacheStore) GetPendingRealDebridLibraryAdds(ctx context.Context, 
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM media_streams
+		LEFT JOIN library_movies m ON m.id = media_streams.movie_id
+		LEFT JOIN library_series srs ON srs.id = media_streams.series_id
 		WHERE is_available = true
 		  AND COALESCE(stream_hash, '') <> ''
 		  AND rd_library_added = false
+		  AND (
+			media_type <> 'movie'
+			OR COALESCE(NULLIF(m.metadata->>'release_date', '')::timestamptz <= NOW(), true)
+		  )
+		  AND (
+			media_type <> 'series'
+			OR COALESCE(NULLIF(srs.metadata->>'first_air_date', '')::timestamptz <= NOW(), true)
+		  )
 		ORDER BY updated_at ASC
 		LIMIT $1
 	`, cachedStreamSelectColumns)
@@ -494,9 +504,19 @@ func (s *StreamCacheStore) GetPendingPlexExports(ctx context.Context, limit int)
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM media_streams
+		LEFT JOIN library_movies m ON m.id = media_streams.movie_id
+		LEFT JOIN library_series srs ON srs.id = media_streams.series_id
 		WHERE is_available = true
 		  AND rd_library_added = true
 		  AND plex_exported = false
+		  AND (
+			media_type <> 'movie'
+			OR COALESCE(NULLIF(m.metadata->>'release_date', '')::timestamptz <= NOW(), true)
+		  )
+		  AND (
+			media_type <> 'series'
+			OR COALESCE(NULLIF(srs.metadata->>'first_air_date', '')::timestamptz <= NOW(), true)
+		  )
 		ORDER BY updated_at ASC
 		LIMIT $1
 	`, cachedStreamSelectColumns)

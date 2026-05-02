@@ -793,6 +793,35 @@ func main() {
 		)
 		cacheScanner.Start() // Start automatic 7-day scanning
 		log.Println("✓ Cache scanner initialized (auto-scan: 7 days)")
+
+		go func() {
+			interval := 5 * time.Minute
+			log.Printf("📚 RD Library Sync Worker: Starting (interval: %v)", interval)
+
+			timer := time.NewTimer(1 * time.Minute)
+			defer timer.Stop()
+
+			for {
+				select {
+				case <-workerCtx.Done():
+					log.Println("🛑 RD Library Sync Worker: Shutting down")
+					return
+				case <-timer.C:
+				}
+
+				current := settingsManager.Get()
+				if current != nil && current.UseRealDebrid && current.AutoAddBestStreamsToRealDebrid {
+					services.GlobalScheduler.MarkRunning(services.ServiceRDLibrarySync)
+					err := cacheScanner.SyncPendingRealDebridLibraryAddsNow(workerCtx)
+					services.GlobalScheduler.MarkComplete(services.ServiceRDLibrarySync, err, interval)
+					if err != nil {
+						log.Printf("❌ RD Library Sync error: %v", err)
+					}
+				}
+
+				timer.Reset(interval)
+			}
+		}()
 	}
 
 	if streamCacheStore != nil && settingsManager != nil {

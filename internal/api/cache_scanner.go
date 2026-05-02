@@ -26,6 +26,8 @@ type CacheScanner struct {
 	streamService   *streams.StreamService
 	provider        *providers.MultiProvider
 	providerMu      sync.RWMutex
+	rdSyncMu        sync.Mutex
+	rdSyncActive    bool
 	debridService   debrid.DebridService
 	settingsManager *settings.Manager
 	ticker          *time.Ticker
@@ -661,6 +663,20 @@ func (cs *CacheScanner) SyncPendingRealDebridLibraryAddsNow(ctx context.Context)
 
 func (cs *CacheScanner) syncPendingRealDebridLibraryAddsWithMode(ctx context.Context, force bool) error {
 	const batchSize = 100
+
+	cs.rdSyncMu.Lock()
+	if cs.rdSyncActive {
+		cs.rdSyncMu.Unlock()
+		log.Printf("[CACHE-SCANNER] Real-Debrid library sync already running, skipping duplicate request")
+		return nil
+	}
+	cs.rdSyncActive = true
+	cs.rdSyncMu.Unlock()
+	defer func() {
+		cs.rdSyncMu.Lock()
+		cs.rdSyncActive = false
+		cs.rdSyncMu.Unlock()
+	}()
 
 	if !force && !cs.shouldAutoAddBestStreamsToRealDebrid() {
 		return nil

@@ -225,6 +225,9 @@ func (p *PlexExporter) exportSingle(ctx context.Context, cfg *settings.Settings,
 	if strings.TrimSpace(cached.RDTorrentID) == "" {
 		return "", fmt.Errorf("missing rd torrent id")
 	}
+	if err := p.validateExportEligibility(ctx, cached); err != nil {
+		return "", err
+	}
 
 	sourcePath, err := p.resolveSourcePath(ctx, cfg, cached)
 	if err != nil {
@@ -253,6 +256,31 @@ func (p *PlexExporter) exportSingle(ctx context.Context, cfg *settings.Settings,
 	}
 
 	return destPath, nil
+}
+
+func (p *PlexExporter) validateExportEligibility(ctx context.Context, cached *models.CachedStream) error {
+	now := time.Now()
+
+	switch cached.MediaType {
+	case "movie":
+		movie, err := p.movieStore.Get(ctx, int64(cached.MovieID))
+		if err != nil {
+			return fmt.Errorf("load movie metadata: %w", err)
+		}
+		if movie.ReleaseDate != nil && movie.ReleaseDate.After(now) {
+			return fmt.Errorf("movie is unreleased until %s", movie.ReleaseDate.Format("2006-01-02"))
+		}
+	case "series":
+		series, err := p.seriesStore.Get(ctx, int64(cached.SeriesID))
+		if err != nil {
+			return fmt.Errorf("load series metadata: %w", err)
+		}
+		if series.FirstAirDate != nil && series.FirstAirDate.After(now) {
+			return fmt.Errorf("series is unreleased until %s", series.FirstAirDate.Format("2006-01-02"))
+		}
+	}
+
+	return nil
 }
 
 func (p *PlexExporter) resolveSourcePath(ctx context.Context, cfg *settings.Settings, cached *models.CachedStream) (string, error) {
