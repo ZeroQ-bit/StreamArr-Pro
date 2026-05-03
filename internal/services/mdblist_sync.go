@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"errors"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Zerr0-C00L/StreamArr/internal/models"
 )
 
 // MDBListSyncService handles syncing MDBList lists to the database
@@ -82,7 +84,7 @@ func (s *MDBListSyncService) SyncAllLists(ctx context.Context) error {
 
 	for listIdx, listConfig := range enabledLists {
 		log.Printf("  → Fetching: %s", listConfig.Name)
-		GlobalScheduler.UpdateProgress(ServiceMDBListSync, listIdx, len(enabledLists), 
+		GlobalScheduler.UpdateProgress(ServiceMDBListSync, listIdx, len(enabledLists),
 			fmt.Sprintf("Fetching: %s", listConfig.Name))
 
 		// Parse username and slug from URL
@@ -100,7 +102,7 @@ func (s *MDBListSyncService) SyncAllLists(ctx context.Context) error {
 		}
 
 		log.Printf("    📊 Found %d movies, %d series", len(result.Movies), len(result.Series))
-		
+
 		totalItems := len(result.Movies) + len(result.Series)
 		processedItems := 0
 
@@ -108,11 +110,11 @@ func (s *MDBListSyncService) SyncAllLists(ctx context.Context) error {
 		moviesAdded := 0
 		for _, item := range result.Movies {
 			processedItems++
-			GlobalScheduler.UpdateProgress(ServiceMDBListSync, listIdx, len(enabledLists), 
+			GlobalScheduler.UpdateProgress(ServiceMDBListSync, listIdx, len(enabledLists),
 				fmt.Sprintf("%s: Importing %s (%d/%d)", listConfig.Name, item.Title, processedItems, totalItems))
 
 			if err := s.importMovie(ctx, item, listConfig.Name); err != nil {
-				if errors.Is(err, ErrBlockedBollywood) {
+				if isContentFilterBlock(err) {
 					// treat as skip without warning
 					continue
 				}
@@ -130,11 +132,11 @@ func (s *MDBListSyncService) SyncAllLists(ctx context.Context) error {
 		seriesAdded := 0
 		for _, item := range result.Series {
 			processedItems++
-			GlobalScheduler.UpdateProgress(ServiceMDBListSync, listIdx, len(enabledLists), 
+			GlobalScheduler.UpdateProgress(ServiceMDBListSync, listIdx, len(enabledLists),
 				fmt.Sprintf("%s: Importing %s (%d/%d)", listConfig.Name, item.Title, processedItems, totalItems))
 
 			if err := s.importSeries(ctx, item, listConfig.Name); err != nil {
-				if errors.Is(err, ErrBlockedBollywood) {
+				if isContentFilterBlock(err) {
 					// treat as skip without warning
 					continue
 				}
@@ -147,8 +149,8 @@ func (s *MDBListSyncService) SyncAllLists(ctx context.Context) error {
 			}
 		}
 		totalSeries += seriesAdded
-		
-		GlobalScheduler.UpdateProgress(ServiceMDBListSync, listIdx+1, len(enabledLists), 
+
+		GlobalScheduler.UpdateProgress(ServiceMDBListSync, listIdx+1, len(enabledLists),
 			fmt.Sprintf("Completed: %s (+%d movies, +%d series)", listConfig.Name, moviesAdded, seriesAdded))
 
 		log.Printf("    ✅ Added %d movies, %d series", moviesAdded, seriesAdded)
@@ -174,6 +176,7 @@ func (s *MDBListSyncService) importMovie(ctx context.Context, item MDBListItem, 
 	var posterPath, backdropPath, overview string
 	var year int
 	title := item.Title
+	tmdbMetadata := map[string]interface{}{}
 
 	if s.tmdbClient != nil {
 		tmdbMovie, err := s.tmdbClient.GetMovie(ctx, item.TMDBID)
@@ -182,14 +185,15 @@ func (s *MDBListSyncService) importMovie(ctx context.Context, item MDBListItem, 
 			overview = tmdbMovie.Overview
 			posterPath = tmdbMovie.PosterPath
 			backdropPath = tmdbMovie.BackdropPath
+			for k, v := range tmdbMovie.Metadata {
+				tmdbMetadata[k] = v
+			}
+			tmdbMetadata["genres"] = tmdbMovie.Genres
 			if tmdbMovie.ReleaseDate != nil {
 				year = tmdbMovie.ReleaseDate.Year()
+				tmdbMetadata["release_date"] = tmdbMovie.ReleaseDate.Format("2006-01-02")
 			}
-			// Bollywood blocking via settings
-			blockStr, _ := s.getSettingValue("block_bollywood")
-			if strings.EqualFold(blockStr, "true") && IsIndianMovie(tmdbMovie) {
-				return ErrBlockedBollywood
-			}
+			tmdbMetadata["runtime"] = tmdbMovie.Runtime
 		}
 	}
 
@@ -210,8 +214,12 @@ func (s *MDBListSyncService) importMovie(ctx context.Context, item MDBListItem, 
 		year = time.Now().Year()
 	}
 
-	// Build metadata with full artwork
-	metadata := map[string]interface{}{
+	// Build metadata with full artwork and origin fields needed by filters.
+	metadata := map[string]interface{}{}
+	for k, v := range tmdbMetadata {
+		metadata[k] = v
+	}
+	for k, v := range map[string]interface{}{
 		"title":         title,
 		"overview":      overview,
 		"poster_path":   posterPath,
@@ -219,6 +227,22 @@ func (s *MDBListSyncService) importMovie(ctx context.Context, item MDBListItem, 
 		"imdb_id":       item.IMDBID,
 		"source":        item.Source,
 		"mdblist":       listName,
+	} {
+		metadata[k] = v
+	}
+
+	movie := &models.Movie{
+		TMDBID:   item.TMDBID,
+		Title:    title,
+		Year:     year,
+		Runtime:  contentMetadataInt(models.Metadata(metadata), "runtime"),
+		Metadata: models.Metadata(metadata),
+	}
+	if allowed, reason := MovieAllowedByContentFilters(movie, s.getContentFilterOptions()); !allowed {
+		if reason == "India-origin media" {
+			return ErrBlockedBollywood
+		}
+		return fmt.Errorf("%w: %s", ErrBlockedContentFilter, reason)
 	}
 
 	metadataJSON, err := json.Marshal(metadata)
@@ -262,6 +286,7 @@ func (s *MDBListSyncService) importSeries(ctx context.Context, item MDBListItem,
 	var posterPath, backdropPath, overview string
 	var year int
 	title := item.Title
+	tmdbMetadata := map[string]interface{}{}
 
 	if s.tmdbClient != nil {
 		tmdbSeries, err := s.tmdbClient.GetSeries(ctx, item.TMDBID)
@@ -270,13 +295,15 @@ func (s *MDBListSyncService) importSeries(ctx context.Context, item MDBListItem,
 			overview = tmdbSeries.Overview
 			posterPath = tmdbSeries.PosterPath
 			backdropPath = tmdbSeries.BackdropPath
+			for k, v := range tmdbSeries.Metadata {
+				tmdbMetadata[k] = v
+			}
+			tmdbMetadata["genres"] = tmdbSeries.Genres
+			tmdbMetadata["status"] = tmdbSeries.Status
+			tmdbMetadata["number_of_seasons"] = tmdbSeries.Seasons
 			if tmdbSeries.FirstAirDate != nil {
 				year = tmdbSeries.FirstAirDate.Year()
-			}
-			// Bollywood blocking via settings
-			blockStr, _ := s.getSettingValue("block_bollywood")
-			if strings.EqualFold(blockStr, "true") && IsIndianSeries(tmdbSeries) {
-				return ErrBlockedBollywood
+				tmdbMetadata["first_air_date"] = tmdbSeries.FirstAirDate.Format("2006-01-02")
 			}
 		}
 	}
@@ -298,8 +325,12 @@ func (s *MDBListSyncService) importSeries(ctx context.Context, item MDBListItem,
 		year = time.Now().Year()
 	}
 
-	// Build metadata with full artwork
-	metadata := map[string]interface{}{
+	// Build metadata with full artwork and origin fields needed by filters.
+	metadata := map[string]interface{}{}
+	for k, v := range tmdbMetadata {
+		metadata[k] = v
+	}
+	for k, v := range map[string]interface{}{
 		"title":         title,
 		"overview":      overview,
 		"poster_path":   posterPath,
@@ -307,6 +338,21 @@ func (s *MDBListSyncService) importSeries(ctx context.Context, item MDBListItem,
 		"source":        item.Source,
 		"mdblist":       listName,
 		"media_type":    "tv",
+	} {
+		metadata[k] = v
+	}
+
+	series := &models.Series{
+		TMDBID:   item.TMDBID,
+		Title:    title,
+		Year:     year,
+		Metadata: models.Metadata(metadata),
+	}
+	if allowed, reason := SeriesAllowedByContentFilters(series, s.getContentFilterOptions()); !allowed {
+		if reason == "India-origin media" {
+			return ErrBlockedBollywood
+		}
+		return fmt.Errorf("%w: %s", ErrBlockedContentFilter, reason)
 	}
 
 	metadataJSON, err := json.Marshal(metadata)
@@ -357,6 +403,51 @@ func (s *MDBListSyncService) getSettingValue(key string) (string, error) {
 	}
 
 	return "", nil
+}
+
+func (s *MDBListSyncService) getContentFilterOptions() ContentFilterOptions {
+	var appSettingsJSON string
+	err := s.db.QueryRow("SELECT value FROM settings WHERE key = 'app_settings'").Scan(&appSettingsJSON)
+	if err != nil {
+		return ContentFilterOptions{}
+	}
+
+	var settingsMap map[string]interface{}
+	if err := json.Unmarshal([]byte(appSettingsJSON), &settingsMap); err != nil {
+		return ContentFilterOptions{}
+	}
+
+	return ContentFilterOptions{
+		MinYear:             settingsInt(settingsMap, "min_year"),
+		MinRuntime:          settingsInt(settingsMap, "min_runtime"),
+		IncludeAdultVOD:     settingsBool(settingsMap, "include_adult_vod"),
+		OnlyReleasedContent: settingsBool(settingsMap, "only_released_content"),
+		BlockBollywood:      settingsBool(settingsMap, "block_bollywood"),
+	}
+}
+
+func settingsBool(settingsMap map[string]interface{}, key string) bool {
+	switch v := settingsMap[key].(type) {
+	case bool:
+		return v
+	case string:
+		parsed, _ := strconv.ParseBool(strings.TrimSpace(v))
+		return parsed
+	}
+	return false
+}
+
+func settingsInt(settingsMap map[string]interface{}, key string) int {
+	switch v := settingsMap[key].(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	case string:
+		parsed, _ := strconv.Atoi(strings.TrimSpace(v))
+		return parsed
+	}
+	return 0
 }
 
 // parseListURL extracts username and slug from MDBList URL
@@ -479,7 +570,7 @@ func (s *MDBListSyncService) enrichMovies(ctx context.Context) (int, error) {
 		}
 
 		enriched++
-		
+
 		// Rate limit TMDB calls
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -559,7 +650,7 @@ func (s *MDBListSyncService) enrichSeries(ctx context.Context) (int, error) {
 		}
 
 		enriched++
-		
+
 		// Rate limit TMDB calls
 		time.Sleep(100 * time.Millisecond)
 	}

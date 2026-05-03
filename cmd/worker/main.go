@@ -88,6 +88,13 @@ func main() {
 	if appSettings.MinYear > 0 {
 		cfg.MinYear = appSettings.MinYear
 	}
+	if appSettings.MinRuntime > 0 {
+		cfg.MinRuntime = appSettings.MinRuntime
+	}
+	cfg.IncludeAdultVOD = appSettings.IncludeAdultVOD
+	cfg.OnlyCachedStreams = appSettings.OnlyCachedStreams
+	cfg.OnlyReleasedContent = appSettings.OnlyReleasedContent
+	cfg.BlockBollywood = appSettings.BlockBollywood
 
 	log.Println("✓ All settings loaded from database")
 
@@ -145,7 +152,7 @@ func main() {
 	log.Println("Starting workers...")
 
 	// Worker 1: Playlist Regeneration (every 12 hours)
-	go playlistWorker(ctx, playlistGen, 12*time.Hour)
+	go playlistWorker(ctx, playlistGen, cfg, settingsManager, 12*time.Hour)
 
 	// Worker 2: Cache Cleanup (every hour)
 	go cacheCleanupWorker(ctx, cacheManager, 1*time.Hour)
@@ -182,10 +189,11 @@ func main() {
 	log.Println("✅ Shutdown complete")
 }
 
-func playlistWorker(ctx context.Context, gen *playlist.EnhancedGenerator, interval time.Duration) {
+func playlistWorker(ctx context.Context, gen *playlist.EnhancedGenerator, cfg *config.Config, settingsManager *settings.Manager, interval time.Duration) {
 	log.Printf("📋 Playlist Worker: Starting (interval: %v)", interval)
 
 	// Run immediately on startup
+	refreshPlaylistRuntimeConfig(cfg, settingsManager)
 	if err := gen.GenerateComplete(ctx); err != nil {
 		log.Printf("❌ Playlist generation error: %v", err)
 	} else {
@@ -202,6 +210,7 @@ func playlistWorker(ctx context.Context, gen *playlist.EnhancedGenerator, interv
 			return
 		case <-ticker.C:
 			log.Println("📋 Playlist Worker: Starting playlist regeneration...")
+			refreshPlaylistRuntimeConfig(cfg, settingsManager)
 			if err := gen.GenerateComplete(ctx); err != nil {
 				log.Printf("❌ Playlist generation error: %v", err)
 			} else {
@@ -209,6 +218,23 @@ func playlistWorker(ctx context.Context, gen *playlist.EnhancedGenerator, interv
 			}
 		}
 	}
+}
+
+func refreshPlaylistRuntimeConfig(cfg *config.Config, settingsManager *settings.Manager) {
+	if cfg == nil || settingsManager == nil {
+		return
+	}
+
+	appSettings := settingsManager.Get()
+	if appSettings.TotalPages > 0 {
+		cfg.TotalPages = appSettings.TotalPages
+	}
+	if appSettings.MinYear > 0 {
+		cfg.MinYear = appSettings.MinYear
+	}
+	cfg.OnlyCachedStreams = appSettings.OnlyCachedStreams
+	cfg.OnlyReleasedContent = appSettings.OnlyReleasedContent
+	cfg.BlockBollywood = appSettings.BlockBollywood
 }
 
 func cacheCleanupWorker(ctx context.Context, manager *cache.Manager, interval time.Duration) {

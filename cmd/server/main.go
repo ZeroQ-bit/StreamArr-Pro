@@ -198,6 +198,9 @@ func main() {
 	}
 	cfg.UserCreatePlaylist = appSettings.UserCreatePlaylist
 	cfg.IncludeAdultVOD = appSettings.IncludeAdultVOD
+	cfg.OnlyCachedStreams = appSettings.OnlyCachedStreams
+	cfg.OnlyReleasedContent = appSettings.OnlyReleasedContent
+	cfg.BlockBollywood = appSettings.BlockBollywood
 	if appSettings.AutoCacheIntervalHours > 0 {
 		cfg.AutoCacheIntervalHours = appSettings.AutoCacheIntervalHours
 	}
@@ -515,6 +518,10 @@ func main() {
 		return map[string]interface{}{
 			"only_cached_streams":   s.OnlyCachedStreams,
 			"only_released_content": s.OnlyReleasedContent,
+			"min_year":              s.MinYear,
+			"min_runtime":           s.MinRuntime,
+			"include_adult_vod":     s.IncludeAdultVOD,
+			"block_bollywood":       s.BlockBollywood,
 		}
 	})
 
@@ -856,6 +863,7 @@ func main() {
 		streamService,
 		cacheScanner,
 		plexExporter,
+		cfg,
 	)
 
 	// Create router and setup REST API routes

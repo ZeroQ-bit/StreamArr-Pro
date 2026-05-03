@@ -53,9 +53,10 @@ type Config struct {
 	EnableQualityVariants  bool
 	ShowFullStreamName     bool
 	OnlyCachedStreams      bool // Only include media with cached streams
+	OnlyReleasedContent    bool // Only include released content in playlists
 
 	// Content Filters
-	BlockBollywood         bool // Block Indian-origin (Bollywood) media across imports/playlists
+	BlockBollywood bool // Block Indian-origin (Bollywood) media across imports/playlists
 
 	// Provider Settings
 	UseRealDebrid bool
@@ -116,6 +117,7 @@ func Load() *Config {
 		EnableQualityVariants:  false,
 		ShowFullStreamName:     false,
 		OnlyCachedStreams:      false,
+		OnlyReleasedContent:    false,
 		BlockBollywood:         false,
 
 		// Provider defaults

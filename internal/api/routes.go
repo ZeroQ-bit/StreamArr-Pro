@@ -301,6 +301,7 @@ func SetupRoutesWithXtream(handler *Handler, xtreamHandler interface{ RegisterRo
 
 	// Maintenance
 	api.HandleFunc("/maintenance/cleanup-bollywood", handler.CleanupBollywoodLibrary).Methods("POST")
+	api.HandleFunc("/maintenance/cleanup-filters", handler.CleanupFilteredLibrary).Methods("POST")
 
 	// Stremio Addon Management
 	api.HandleFunc("/stremio/generate-token", handler.GenerateStremioToken).Methods("POST")

@@ -528,6 +528,15 @@ func (m *Manager) saveToDBLocked() error {
 		return fmt.Errorf("save xtream_password: %w", err)
 	}
 
+	_, err = m.db.Exec(`
+		INSERT INTO settings (key, value, type, updated_at)
+		VALUES ('only_cached_streams', $1, 'bool', NOW())
+		ON CONFLICT (key) DO UPDATE SET value = $1, type = 'bool', updated_at = NOW()
+	`, fmt.Sprintf("%t", m.settings.OnlyCachedStreams))
+	if err != nil {
+		return fmt.Errorf("save only_cached_streams: %w", err)
+	}
+
 	return nil
 }
 
@@ -661,12 +670,18 @@ func (m *Manager) GetAll() (map[string]interface{}, error) {
 		"comet_excluded_qualities":            m.settings.CometExcludedQualities,
 		"comet_priority_languages":            m.settings.CometPriorityLanguages,
 		"comet_max_size":                      m.settings.CometMaxSize,
-		"total_pages":                         m.settings.TotalPages,
-		"max_resolution":                      m.settings.MaxResolution,
-		"auto_cache_interval_hours":           m.settings.AutoCacheIntervalHours,
-		"user_create_playlist":                m.settings.UserCreatePlaylist,
-		"include_adult_vod":                   m.settings.IncludeAdultVOD,
-		"auto_add_best_streams_to_realdebrid": m.settings.AutoAddBestStreamsToRealDebrid,
+			"total_pages":                         m.settings.TotalPages,
+			"min_year":                            m.settings.MinYear,
+			"min_runtime":                         m.settings.MinRuntime,
+			"max_resolution":                      m.settings.MaxResolution,
+			"auto_cache_interval_hours":           m.settings.AutoCacheIntervalHours,
+			"user_create_playlist":                m.settings.UserCreatePlaylist,
+			"include_adult_vod":                   m.settings.IncludeAdultVOD,
+			"import_adult_vod_from_github":        m.settings.ImportAdultVODFromGitHub,
+			"only_cached_streams":                 m.settings.OnlyCachedStreams,
+			"only_released_content":               m.settings.OnlyReleasedContent,
+			"hide_unavailable_content":            m.settings.HideUnavailableContent,
+			"auto_add_best_streams_to_realdebrid": m.settings.AutoAddBestStreamsToRealDebrid,
 		"plex_export_enabled":                 m.settings.PlexExportEnabled,
 		"plex_export_interval_minutes":        m.settings.PlexExportIntervalMinutes,
 		"plex_export_mode":                    m.settings.PlexExportMode,
@@ -744,21 +759,39 @@ func (m *Manager) SetAll(updates map[string]interface{}) error {
 	if v, ok := updates["comet_max_size"].(string); ok {
 		m.settings.CometMaxSize = v
 	}
-	if v, ok := updates["total_pages"].(float64); ok {
-		m.settings.TotalPages = int(v)
-	}
-	if v, ok := updates["max_resolution"].(float64); ok {
-		m.settings.MaxResolution = int(v)
-	}
+		if v, ok := updates["total_pages"].(float64); ok {
+			m.settings.TotalPages = int(v)
+		}
+		if v, ok := updates["min_year"].(float64); ok {
+			m.settings.MinYear = int(v)
+		}
+		if v, ok := updates["min_runtime"].(float64); ok {
+			m.settings.MinRuntime = int(v)
+		}
+		if v, ok := updates["max_resolution"].(float64); ok {
+			m.settings.MaxResolution = int(v)
+		}
 	if v, ok := updates["auto_cache_interval_hours"].(float64); ok {
 		m.settings.AutoCacheIntervalHours = int(v)
 	}
 	if v, ok := updates["user_create_playlist"].(bool); ok {
 		m.settings.UserCreatePlaylist = v
 	}
-	if v, ok := updates["include_adult_vod"].(bool); ok {
-		m.settings.IncludeAdultVOD = v
-	}
+		if v, ok := updates["include_adult_vod"].(bool); ok {
+			m.settings.IncludeAdultVOD = v
+		}
+		if v, ok := updates["import_adult_vod_from_github"].(bool); ok {
+			m.settings.ImportAdultVODFromGitHub = v
+		}
+		if v, ok := updates["only_cached_streams"].(bool); ok {
+			m.settings.OnlyCachedStreams = v
+		}
+		if v, ok := updates["only_released_content"].(bool); ok {
+			m.settings.OnlyReleasedContent = v
+		}
+		if v, ok := updates["hide_unavailable_content"].(bool); ok {
+			m.settings.HideUnavailableContent = v
+		}
 	if v, ok := updates["auto_add_best_streams_to_realdebrid"].(bool); ok {
 		m.settings.AutoAddBestStreamsToRealDebrid = v
 	}

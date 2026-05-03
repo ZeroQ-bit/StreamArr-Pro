@@ -21,6 +21,7 @@ import (
 	"github.com/Zerr0-C00L/StreamArr/internal/config"
 	"github.com/Zerr0-C00L/StreamArr/internal/epg"
 	"github.com/Zerr0-C00L/StreamArr/internal/livetv"
+	"github.com/Zerr0-C00L/StreamArr/internal/models"
 	"github.com/Zerr0-C00L/StreamArr/internal/providers"
 	"github.com/Zerr0-C00L/StreamArr/internal/services"
 	"github.com/gorilla/mux"
@@ -28,10 +29,10 @@ import (
 
 // EpisodeLookup stores the mapping from TMDB episode ID to playback info
 type EpisodeLookup struct {
-	SeriesID   string `json:"series_id"`
-	Season     int    `json:"season"`
-	Episode    int    `json:"episode"`
-	IMDBID     string `json:"imdb_id"`
+	SeriesID string `json:"series_id"`
+	Season   int    `json:"season"`
+	Episode  int    `json:"episode"`
+	IMDBID   string `json:"imdb_id"`
 }
 
 // episodeCacheFile is the path to the episode cache JSON file
@@ -52,22 +53,22 @@ func (s *settingsAdapter) HideUnavailable() bool {
 }
 
 type XtreamHandler struct {
-	cfg             *config.Config
-	db              *sql.DB
-	tmdb            *services.TMDBClient
-	rdClient        *services.RealDebridClient
-	multiProvider   *providers.MultiProvider
-	channelManager  *livetv.ChannelManager
-	epgManager      *epg.Manager
-	hideUnavailable func() bool
-	getSettings     func() interface{} // Dynamically get settings
-	baseURL         string
-	episodeCache    map[string]EpisodeLookup
-	episodeMu       sync.RWMutex
+	cfg                     *config.Config
+	db                      *sql.DB
+	tmdb                    *services.TMDBClient
+	rdClient                *services.RealDebridClient
+	multiProvider           *providers.MultiProvider
+	channelManager          *livetv.ChannelManager
+	epgManager              *epg.Manager
+	hideUnavailable         func() bool
+	getSettings             func() interface{} // Dynamically get settings
+	baseURL                 string
+	episodeCache            map[string]EpisodeLookup
+	episodeMu               sync.RWMutex
 	duplicateVODPerProvider func() bool
 	// Sorting settings
-	getSortOrder     func() string
-	getSortPrefer    func() string
+	getSortOrder  func() string
+	getSortPrefer func() string
 }
 
 func NewXtreamHandler(cfg *config.Config, db *sql.DB, tmdb *services.TMDBClient, rdClient *services.RealDebridClient, channelManager *livetv.ChannelManager, epgManager *epg.Manager, stremioAddons []providers.StremioAddon, proxies []string) *XtreamHandler {
@@ -77,7 +78,7 @@ func NewXtreamHandler(cfg *config.Config, db *sql.DB, tmdb *services.TMDBClient,
 		tmdb,
 		proxies,
 	)
-	
+
 	return NewXtreamHandlerWithProvider(cfg, db, tmdb, rdClient, channelManager, epgManager, multiProvider)
 }
 
@@ -94,10 +95,10 @@ func NewXtreamHandlerWithProvider(cfg *config.Config, db *sql.DB, tmdb *services
 		episodeCache:   make(map[string]EpisodeLookup),
 		getSettings:    func() interface{} { return nil }, // Default: no settings
 	}
-	
+
 	// Load episode cache from file
 	h.loadEpisodeCache()
-	
+
 	return h
 }
 
@@ -108,9 +109,9 @@ func (h *XtreamHandler) resolveStremioURL(addonURL string) (string, error) {
 		// Not a Stremio addon URL, return as-is
 		return addonURL, nil
 	}
-	
+
 	log.Printf("[RESOLVE] Attempting to resolve Stremio addon URL...")
-	
+
 	// Get list of proxies if Torrentio URL
 	var proxyURLs []string
 	if strings.Contains(addonURL, "torrentio") {
@@ -123,13 +124,13 @@ func (h *XtreamHandler) resolveStremioURL(addonURL string) (string, error) {
 			}
 		}
 	}
-	
+
 	// Try each proxy in sequence (or no proxy if list is empty)
 	maxAttempts := 1
 	if len(proxyURLs) > 0 {
 		maxAttempts = len(proxyURLs)
 	}
-	
+
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		// Create fresh transport for each attempt
@@ -139,7 +140,7 @@ func (h *XtreamHandler) resolveStremioURL(addonURL string) (string, error) {
 			},
 			DisableCompression: true,
 		}
-		
+
 		// Configure proxy for this attempt
 		if attempt < len(proxyURLs) {
 			proxyURL := proxyURLs[attempt]
@@ -151,15 +152,15 @@ func (h *XtreamHandler) resolveStremioURL(addonURL string) (string, error) {
 				continue
 			}
 		}
-		
+
 		client := &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
 			Transport: transport,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
 		}
-		
+
 		// Create request with browser-like headers to avoid Cloudflare detection
 		req, err := http.NewRequest("GET", addonURL, nil)
 		if err != nil {
@@ -167,7 +168,7 @@ func (h *XtreamHandler) resolveStremioURL(addonURL string) (string, error) {
 			log.Printf("[RESOLVE-PROXY] Attempt %d/%d: Failed to create request: %v", attempt+1, maxAttempts, err)
 			continue
 		}
-		
+
 		// Add browser headers to look like a real browser
 		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
@@ -175,7 +176,7 @@ func (h *XtreamHandler) resolveStremioURL(addonURL string) (string, error) {
 		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
 		req.Header.Set("Connection", "keep-alive")
 		req.Header.Set("Upgrade-Insecure-Requests", "1")
-		
+
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = err
@@ -183,14 +184,14 @@ func (h *XtreamHandler) resolveStremioURL(addonURL string) (string, error) {
 			continue
 		}
 		defer resp.Body.Close()
-		
+
 		// Check for Cloudflare block (403) or other errors
 		if resp.StatusCode == 403 {
 			lastErr = fmt.Errorf("cloudflare block (403)")
 			log.Printf("[RESOLVE-PROXY] Attempt %d/%d: Got 403 Cloudflare block", attempt+1, maxAttempts)
 			continue
 		}
-		
+
 		// Success! Process the response
 		if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusTemporaryRedirect {
 			location := resp.Header.Get("Location")
@@ -199,16 +200,16 @@ func (h *XtreamHandler) resolveStremioURL(addonURL string) (string, error) {
 				return location, nil
 			}
 		}
-		
+
 		lastErr = fmt.Errorf("unexpected response status: %d", resp.StatusCode)
 		log.Printf("[RESOLVE-PROXY] Attempt %d/%d: Unexpected status %d", attempt+1, maxAttempts, resp.StatusCode)
 	}
-	
+
 	// All attempts failed
 	if lastErr != nil {
 		return "", lastErr
 	}
-	
+
 	// Fallback: try without proxy
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -216,21 +217,21 @@ func (h *XtreamHandler) resolveStremioURL(addonURL string) (string, error) {
 		},
 		DisableCompression: true,
 	}
-	
+
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout:   30 * time.Second,
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
-	
+
 	resp, err := client.Get(addonURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch addon URL: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	// Check for redirect (Real-Debrid direct link)
 	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusTemporaryRedirect {
 		location := resp.Header.Get("Location")
@@ -239,7 +240,7 @@ func (h *XtreamHandler) resolveStremioURL(addonURL string) (string, error) {
 			return location, nil
 		}
 	}
-	
+
 	// Check for JSON error response
 	contentType := resp.Header.Get("Content-Type")
 	if strings.Contains(contentType, "application/json") {
@@ -252,13 +253,13 @@ func (h *XtreamHandler) resolveStremioURL(addonURL string) (string, error) {
 		}
 		return "", fmt.Errorf("addon returned JSON instead of video stream")
 	}
-	
+
 	// If status is OK and not JSON, the URL itself might be streamable
 	if resp.StatusCode == http.StatusOK {
 		log.Printf("[RESOLVE] Addon returned 200 OK, using original URL")
 		return addonURL, nil
 	}
-	
+
 	return "", fmt.Errorf("unexpected response status: %d", resp.StatusCode)
 }
 
@@ -286,21 +287,21 @@ func (h *XtreamHandler) SetSortSettings(getSortOrder, getSortPrefer func() strin
 func (h *XtreamHandler) ValidateXtreamCredentials(username, password string) bool {
 	// Query settings from database
 	var storedUsername, storedPassword string
-	
+
 	// Get stored Xtream username
 	err := h.db.QueryRow("SELECT value FROM settings WHERE key = 'xtream_username'").Scan(&storedUsername)
 	if err != nil && err != sql.ErrNoRows {
 		log.Printf("Error querying xtream_username: %v", err)
 		return false
 	}
-	
+
 	// Get stored Xtream password
 	err = h.db.QueryRow("SELECT value FROM settings WHERE key = 'xtream_password'").Scan(&storedPassword)
 	if err != nil && err != sql.ErrNoRows {
 		log.Printf("Error querying xtream_password: %v", err)
 		return false
 	}
-	
+
 	// If no credentials are set, use default "streamarr"/"streamarr"
 	if storedUsername == "" {
 		storedUsername = "streamarr"
@@ -308,7 +309,7 @@ func (h *XtreamHandler) ValidateXtreamCredentials(username, password string) boo
 	if storedPassword == "" {
 		storedPassword = "streamarr"
 	}
-	
+
 	// Check if provided credentials match
 	return username == storedUsername && password == storedPassword
 }
@@ -320,15 +321,15 @@ func (h *XtreamHandler) loadEpisodeCache() {
 		log.Printf("No episode cache file found, starting fresh")
 		return
 	}
-	
+
 	h.episodeMu.Lock()
 	defer h.episodeMu.Unlock()
-	
+
 	if err := json.Unmarshal(data, &h.episodeCache); err != nil {
 		log.Printf("Error loading episode cache: %v", err)
 		return
 	}
-	
+
 	log.Printf("Loaded %d episodes from cache", len(h.episodeCache))
 }
 
@@ -337,50 +338,50 @@ func (h *XtreamHandler) saveEpisodeCache() {
 	h.episodeMu.RLock()
 	data, err := json.Marshal(h.episodeCache)
 	h.episodeMu.RUnlock()
-	
+
 	if err != nil {
 		log.Printf("Error marshaling episode cache: %v", err)
 		return
 	}
-	
+
 	// Ensure cache directory exists
 	if err := os.MkdirAll("cache", 0755); err != nil {
 		log.Printf("Error creating cache directory: %v", err)
 		return
 	}
-	
+
 	if err := os.WriteFile(episodeCacheFile, data, 0644); err != nil {
 		log.Printf("Error saving episode cache: %v", err)
 		return
 	}
-	
+
 	log.Printf("Saved %d episodes to cache", len(h.episodeCache))
 }
 
 // getYouTubeTrailer fetches the YouTube trailer ID for a movie or series from TMDB
 func (h *XtreamHandler) getYouTubeTrailer(tmdbID int64, mediaType string) string {
 	ctx := context.Background()
-	
+
 	// Fetch videos from TMDB API (use api_key query param for v3 API keys)
 	apiURL := fmt.Sprintf("https://api.themoviedb.org/3/%s/%d/videos?language=en-US&api_key=%s", mediaType, tmdbID, h.cfg.TMDBAPIKey)
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return ""
 	}
-	
+
 	req.Header.Set("Accept", "application/json")
-	
+
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return ""
 	}
-	
+
 	var result struct {
 		Results []struct {
 			Key      string `json:"key"`
@@ -389,38 +390,181 @@ func (h *XtreamHandler) getYouTubeTrailer(tmdbID int64, mediaType string) string
 			Official bool   `json:"official"`
 		} `json:"results"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return ""
 	}
-	
+
 	// Look for official trailer first
 	for _, video := range result.Results {
 		if video.Site == "YouTube" && video.Type == "Trailer" && video.Official {
 			return video.Key
 		}
 	}
-	
+
 	// Fall back to any trailer
 	for _, video := range result.Results {
 		if video.Site == "YouTube" && video.Type == "Trailer" {
 			return video.Key
 		}
 	}
-	
+
 	// Fall back to any YouTube video (teaser, clip, etc.)
 	for _, video := range result.Results {
 		if video.Site == "YouTube" {
 			return video.Key
 		}
 	}
-	
+
 	return ""
 }
 
 // SetSettingsGetter sets the function to dynamically fetch settings
 func (h *XtreamHandler) SetSettingsGetter(fn func() interface{}) {
 	h.getSettings = fn
+}
+
+type xtreamFilterSettings struct {
+	OnlyCached bool
+	Content    services.ContentFilterOptions
+}
+
+func (h *XtreamHandler) currentFilterSettings() xtreamFilterSettings {
+	settings := xtreamFilterSettings{}
+	if h.cfg != nil {
+		settings.OnlyCached = h.cfg.OnlyCachedStreams
+		settings.Content = services.ContentFilterOptions{
+			MinYear:             h.cfg.MinYear,
+			MinRuntime:          h.cfg.MinRuntime,
+			IncludeAdultVOD:     h.cfg.IncludeAdultVOD,
+			OnlyReleasedContent: h.cfg.OnlyReleasedContent,
+			BlockBollywood:      h.cfg.BlockBollywood,
+		}
+	}
+
+	if h.getSettings == nil {
+		return settings
+	}
+	raw := h.getSettings()
+	settingsMap, ok := raw.(map[string]interface{})
+	if !ok || settingsMap == nil {
+		return settings
+	}
+
+	if v, ok := boolFromSettings(settingsMap, "only_cached_streams"); ok {
+		settings.OnlyCached = v
+	}
+	if v, ok := boolFromSettings(settingsMap, "only_include_cached_streams"); ok {
+		settings.OnlyCached = v
+	}
+	if v, ok := boolFromSettings(settingsMap, "include_adult_vod"); ok {
+		settings.Content.IncludeAdultVOD = v
+	}
+	if v, ok := boolFromSettings(settingsMap, "only_released_content"); ok {
+		settings.Content.OnlyReleasedContent = v
+	}
+	if v, ok := boolFromSettings(settingsMap, "block_bollywood"); ok {
+		settings.Content.BlockBollywood = v
+	}
+	if v, ok := intFromSettings(settingsMap, "min_year"); ok {
+		settings.Content.MinYear = v
+	}
+	if v, ok := intFromSettings(settingsMap, "min_runtime"); ok {
+		settings.Content.MinRuntime = v
+	}
+
+	return settings
+}
+
+func boolFromSettings(settings map[string]interface{}, key string) (bool, bool) {
+	switch v := settings[key].(type) {
+	case bool:
+		return v, true
+	case string:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(v))
+		return parsed, err == nil
+	}
+	return false, false
+}
+
+func intFromSettings(settings map[string]interface{}, key string) (int, bool) {
+	switch v := settings[key].(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(v))
+		return parsed, err == nil
+	}
+	return 0, false
+}
+
+func movieFromXtreamRow(id, tmdbID int64, title string, year sql.NullInt64, metadata map[string]interface{}) *models.Movie {
+	movie := &models.Movie{
+		ID:       id,
+		TMDBID:   int(tmdbID),
+		Title:    title,
+		Metadata: models.Metadata(metadata),
+	}
+	if year.Valid {
+		movie.Year = int(year.Int64)
+	}
+	return movie
+}
+
+func seriesFromXtreamRow(id, tmdbID int64, title string, year sql.NullInt64, metadata map[string]interface{}) *models.Series {
+	series := &models.Series{
+		ID:       id,
+		TMDBID:   int(tmdbID),
+		Title:    title,
+		Metadata: models.Metadata(metadata),
+	}
+	if year.Valid {
+		series.Year = int(year.Int64)
+	}
+	return series
+}
+
+func movieAvailableClause(alias string) string {
+	return fmt.Sprintf(` AND (
+		%[1]s.available = true
+		OR EXISTS (
+			SELECT 1 FROM media_streams ms
+			WHERE ms.movie_id = %[1]s.id
+			  AND COALESCE(ms.is_available, true) = true
+		)
+		OR CASE
+			WHEN jsonb_typeof(%[1]s.metadata->'iptv_vod_sources') = 'array'
+			THEN jsonb_array_length(%[1]s.metadata->'iptv_vod_sources') > 0
+			ELSE false
+		END
+	)`, alias)
+}
+
+func seriesAvailableClause(alias string) string {
+	return fmt.Sprintf(` AND (
+		EXISTS (
+			SELECT 1 FROM media_streams ms
+			WHERE ms.series_id = %[1]s.id
+			  AND COALESCE(ms.is_available, true) = true
+		)
+		OR CASE
+			WHEN jsonb_typeof(%[1]s.metadata->'iptv_vod_sources') = 'array'
+			THEN jsonb_array_length(%[1]s.metadata->'iptv_vod_sources') > 0
+			ELSE false
+		END
+	)`, alias)
+}
+
+func metadataHasVODSources(metadata map[string]interface{}) bool {
+	if metadata == nil {
+		return false
+	}
+	sources, ok := metadata["iptv_vod_sources"].([]interface{})
+	return ok && len(sources) > 0
 }
 
 func (h *XtreamHandler) RegisterRoutes(r *mux.Router) {
@@ -430,7 +574,7 @@ func (h *XtreamHandler) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/xmltv.php", h.handleXMLTV).Methods("GET")
 	r.HandleFunc("/play.php", h.handlePlay).Methods("GET")
 	r.HandleFunc("/get.php", h.handleGetPlaylist).Methods("GET")
-	
+
 	// Xtream playback routes - /movie/user/pass/{id}.{ext} format
 	// Support both GET and HEAD (some media players check with HEAD first)
 	// Quality suffix route (e.g., /movie/user/pass/550_1080p.mp4)
@@ -438,18 +582,18 @@ func (h *XtreamHandler) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/movie/{username}/{password}/{id}.{ext}", h.handleMoviePlay).Methods("GET", "HEAD")
 	r.HandleFunc("/series/{username}/{password}/{id}.{ext}", h.handleSeriesPlay).Methods("GET", "HEAD")
 	r.HandleFunc("/live/{username}/{password}/{id}.{ext}", h.handleLivePlay).Methods("GET", "HEAD")
-	
+
 	// Direct VOD format (some apps use this without /movie/ prefix)
 	r.HandleFunc("/{username}/{password}/{id}.{ext}", h.handleDirectPlay).Methods("GET", "HEAD")
 }
 
 func (h *XtreamHandler) handlePlayerAPI(w http.ResponseWriter, r *http.Request) {
 	action := r.URL.Query().Get("action")
-	
+
 	log.Printf("Xtream API: action=%s", action)
-	
+
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	switch action {
 	case "get_vod_categories":
 		h.getVODCategories(w, r)
@@ -476,7 +620,7 @@ func (h *XtreamHandler) getServerInfo(w http.ResponseWriter, r *http.Request) {
 	// Get credentials from request
 	username := r.URL.Query().Get("username")
 	password := r.URL.Query().Get("password")
-	
+
 	// Validate credentials
 	if !h.ValidateXtreamCredentials(username, password) {
 		w.Header().Set("Content-Type", "application/json")
@@ -489,25 +633,25 @@ func (h *XtreamHandler) getServerInfo(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	// Get the actual host from the request (PHP returns just host, not full URL)
 	host := r.Host
 	if host == "" {
 		host = fmt.Sprintf("%s:%d", h.cfg.Host, h.cfg.ServerPort)
 	}
-	
+
 	// Extract just the hostname without port for URL field (like PHP does)
 	hostOnly := host
 	if idx := strings.Index(host, ":"); idx > 0 {
 		hostOnly = host[:idx]
 	}
-	
+
 	// Get port separately
 	port := fmt.Sprintf("%d", h.cfg.ServerPort)
 	if idx := strings.Index(host, ":"); idx > 0 {
 		port = host[idx+1:]
 	}
-	
+
 	// Set username to default if empty (after validation)
 	if username == "" {
 		username = "user"
@@ -516,30 +660,30 @@ func (h *XtreamHandler) getServerInfo(w http.ResponseWriter, r *http.Request) {
 	// Current timestamp for update tracking
 	now := time.Now().Unix()
 
-			info := map[string]interface{}{
+	info := map[string]interface{}{
 		"user_info": map[string]interface{}{
-			"username":             username,
-			"password":             password,
-			"message":              "",
-			"auth":                 1,
-			"status":               "Active",
-			"exp_date":             "4095101905",
-			"is_trial":             "0",
-			"active_cons":          "0",
-			"created_at":           "1684851647",
-			"max_connections":      "1000",
+			"username":               username,
+			"password":               password,
+			"message":                "",
+			"auth":                   1,
+			"status":                 "Active",
+			"exp_date":               "4095101905",
+			"is_trial":               "0",
+			"active_cons":            "0",
+			"created_at":             "1684851647",
+			"max_connections":        "1000",
 			"allowed_output_formats": []string{"m3u8", ""},
 		},
 		"server_info": map[string]interface{}{
-			"url":                    hostOnly,
-			"port":                   port,
-			"https_port":             "",
-			"server_protocol":        "http",
-			"rtmp_port":              "",
-			"timezone":               "America/New_York",
-			"timestamp_now":          now,
-			"time_now":               time.Now().Format("2006-01-02 15:04:05"),
-			"process":                true,
+			"url":             hostOnly,
+			"port":            port,
+			"https_port":      "",
+			"server_protocol": "http",
+			"rtmp_port":       "",
+			"timezone":        "America/New_York",
+			"timestamp_now":   now,
+			"time_now":        time.Now().Format("2006-01-02 15:04:05"),
+			"process":         true,
 		},
 	}
 
@@ -549,21 +693,21 @@ func (h *XtreamHandler) getServerInfo(w http.ResponseWriter, r *http.Request) {
 // handlePanelAPI handles the panel_api.php endpoint used by some IPTV apps for content updates
 func (h *XtreamHandler) handlePanelAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// Get counts from database
 	var movieCount, seriesCount int
 	h.db.QueryRow("SELECT COUNT(*) FROM library_movies").Scan(&movieCount)
 	h.db.QueryRow("SELECT COUNT(*) FROM library_series").Scan(&seriesCount)
-	
+
 	// Get live channel count
 	liveCount := 0
 	if h.channelManager != nil {
 		liveCount = h.channelManager.GetChannelCount()
 	}
-	
+
 	// Current timestamp for updates
 	now := time.Now().Unix()
-	
+
 	// Panel API response with update timestamps
 	// This tells apps when content was last updated so they can sync
 	response := map[string]interface{}{
@@ -601,7 +745,7 @@ func (h *XtreamHandler) handlePanelAPI(w http.ResponseWriter, r *http.Request) {
 			"series_last_modified": now,
 		},
 	}
-	
+
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -646,7 +790,7 @@ func (h *XtreamHandler) getVODCategories(w http.ResponseWriter, r *http.Request)
 		{"category_id": "10752", "category_name": "War", "parent_id": 0},
 		{"category_id": "37", "category_name": "Western", "parent_id": 0},
 	}
-	
+
 	// Add collections as categories (using "col_" prefix to distinguish from genres)
 	// Only include collections that have at least 1 movie in the library
 	collectionsQuery := `
@@ -658,7 +802,7 @@ func (h *XtreamHandler) getVODCategories(w http.ResponseWriter, r *http.Request)
 		HAVING COUNT(m.id) > 0
 		ORDER BY c.name ASC
 	`
-	
+
 	rows, err := h.db.Query(collectionsQuery)
 	if err == nil {
 		defer rows.Close()
@@ -676,14 +820,14 @@ func (h *XtreamHandler) getVODCategories(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	}
-	
+
 	json.NewEncoder(w).Encode(categories)
 }
 
 func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 	// Get category_id filter from query params
 	categoryFilter := r.URL.Query().Get("category_id")
-	
+
 	// Check if filtering by collection (col_XXXXX format)
 	var collectionTmdbID int64
 	isCollectionFilter := false
@@ -694,39 +838,27 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 			isCollectionFilter = true
 		}
 	}
-	
+
 	// Check if we should hide unavailable content
 	hideUnavailable := false
 	if h.hideUnavailable != nil {
 		hideUnavailable = h.hideUnavailable()
 	}
-	
-	// Get current settings
-	var onlyCached bool
-	var onlyReleasedContent bool
-	log.Printf("[XTREAM] getSettings function exists: %v", h.getSettings != nil)
-	if h.getSettings != nil {
-		settings := h.getSettings()
-		log.Printf("[XTREAM] Settings retrieved: %+v", settings)
-		if settings != nil {
-			if settingsMap, ok := settings.(map[string]interface{}); ok {
-				log.Printf("[XTREAM] Settings map: %+v", settingsMap)
-				if oc, ok := settingsMap["only_cached_streams"].(bool); ok {
-					onlyCached = oc
-					log.Printf("[XTREAM] OnlyCachedStreams setting: %v", onlyCached)
-				}
-				if orc, ok := settingsMap["only_released_content"].(bool); ok {
-					onlyReleasedContent = orc
-					log.Printf("[XTREAM] OnlyReleasedContent setting: %v", onlyReleasedContent)
-				}
-			}
-		}
-	}
-	
+
+	filterSettings := h.currentFilterSettings()
+	log.Printf("[XTREAM] VOD filters: only_cached=%v min_year=%d min_runtime=%d include_adult=%v only_released=%v block_bollywood=%v",
+		filterSettings.OnlyCached,
+		filterSettings.Content.MinYear,
+		filterSettings.Content.MinRuntime,
+		filterSettings.Content.IncludeAdultVOD,
+		filterSettings.Content.OnlyReleasedContent,
+		filterSettings.Content.BlockBollywood,
+	)
+
 	// Build query with filters
 	var query string
 	var args []interface{}
-	
+
 	if isCollectionFilter {
 		// Query movies by collection TMDB ID
 		query = `
@@ -737,12 +869,12 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 			WHERE m.monitored = true AND c.tmdb_id = $1
 		`
 		args = append(args, collectionTmdbID)
-		
+
 		if hideUnavailable {
-			query += ` AND (m.available = true OR m.last_checked IS NULL)`
+			query += movieAvailableClause("m")
 		}
-		if onlyCached {
-			query += ` AND EXISTS (SELECT 1 FROM media_streams ms WHERE ms.movie_id = m.id)`
+		if filterSettings.OnlyCached {
+			query += ` AND EXISTS (SELECT 1 FROM media_streams ms WHERE ms.movie_id = m.id AND COALESCE(ms.is_available, true) = true)`
 		}
 		query += ` ORDER BY m.year ASC, m.title ASC` // Order by year for collections (chronological)
 	} else {
@@ -753,20 +885,20 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 			LEFT JOIN collections c ON m.collection_id = c.id
 			WHERE m.monitored = true
 		`
-		
+
 		// Apply hideUnavailable filter
 		if hideUnavailable {
-			query += ` AND (m.available = true OR m.last_checked IS NULL)`
+			query += movieAvailableClause("m")
 		}
-		
+
 		// Apply "Only Cached Streams" filter
-		if onlyCached {
-			query += ` AND EXISTS (SELECT 1 FROM media_streams ms WHERE ms.movie_id = m.id)`
+		if filterSettings.OnlyCached {
+			query += ` AND EXISTS (SELECT 1 FROM media_streams ms WHERE ms.movie_id = m.id AND COALESCE(ms.is_available, true) = true)`
 		}
-		
+
 		query += ` ORDER BY m.id DESC`
 	}
-	
+
 	var rows *sql.Rows
 	var err error
 	if len(args) > 0 {
@@ -780,10 +912,10 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	
+
 	streams := make([]map[string]interface{}, 0)
 	num := 1
-	
+
 	for rows.Next() {
 		var id, tmdbID int64
 		var title string
@@ -791,36 +923,41 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 		var metadataJSON []byte
 		var addedTs float64
 		var collectionTmdbIDVal int64
-		
+
 		if err := rows.Scan(&id, &tmdbID, &title, &year, &metadataJSON, &addedTs, &collectionTmdbIDVal); err != nil {
 			continue
 		}
-		
+
 		var metadata map[string]interface{}
 		json.Unmarshal(metadataJSON, &metadata)
-		
+
+		if allowed, reason := services.MovieAllowedByContentFilters(movieFromXtreamRow(id, tmdbID, title, year, metadata), filterSettings.Content); !allowed {
+			log.Printf("[XTREAM] Skipping VOD movie %s: %s", title, reason)
+			continue
+		}
+
 		// Build full poster URL
 		posterPath := ""
 		if pp, ok := metadata["poster_path"].(string); ok && pp != "" {
 			posterPath = "https://image.tmdb.org/t/p/w500" + pp
 		}
-		
+
 		backdropPath := ""
 		if bp, ok := metadata["backdrop_path"].(string); ok && bp != "" {
 			backdropPath = "https://image.tmdb.org/t/p/original" + bp
 		}
-		
+
 		// Get numeric rating
 		rating := float64(0)
 		if r, ok := metadata["vote_average"].(float64); ok {
 			rating = r
 		}
-		
+
 		plot := ""
 		if p, ok := metadata["overview"].(string); ok {
 			plot = p
 		}
-		
+
 		// TMDB movie genre name to ID mapping
 		genreNameToID := map[string]string{
 			"Action": "28", "Adventure": "12", "Animation": "16", "Comedy": "35",
@@ -829,12 +966,12 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 			"Mystery": "9648", "Romance": "10749", "Science Fiction": "878",
 			"TV Movie": "10770", "Thriller": "53", "War": "10752", "Western": "37",
 		}
-		
+
 		// Get genre category IDs from metadata
 		// Start with "Now Playing" and "Popular" so movies appear in both
-		categoryID := "999992" // Default to "Now Playing"
+		categoryID := "999992"                      // Default to "Now Playing"
 		categoryIDs := []string{"999992", "999991"} // Now Playing + Popular
-		
+
 		if genres, ok := metadata["genres"].([]interface{}); ok && len(genres) > 0 {
 			for i, g := range genres {
 				// Try object format first: {"id": 27, "name": "Horror"}
@@ -857,7 +994,7 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		
+
 		// Also check genre_ids array (some TMDB responses use this format)
 		if genreIDs, ok := metadata["genre_ids"].([]interface{}); ok && len(genreIDs) > 0 {
 			for i, gid := range genreIDs {
@@ -878,18 +1015,18 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		
+
 		// Add collection category if movie belongs to a collection
 		if collectionTmdbIDVal > 0 {
 			categoryIDs = append(categoryIDs, fmt.Sprintf("col_%d", collectionTmdbIDVal))
 		}
-		
+
 		// Convert timestamp to int
 		addedInt := int64(addedTs)
 		if addedInt == 0 {
 			addedInt = time.Now().Unix()
 		}
-		
+
 		// IMPORTANT: Use TMDB ID as stream_id for playback
 		baseStream := map[string]interface{}{
 			"num":                 num,
@@ -913,7 +1050,7 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 			"last_modified":       addedInt,
 			"group":               "StreamArr",
 		}
-		
+
 		// Filter by category if specified (skip for collection filter since SQL already filtered)
 		if categoryFilter != "" && !isCollectionFilter {
 			found := false
@@ -928,21 +1065,6 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Check release date filtering (only if only_released_content is enabled)
-		if onlyReleasedContent && metadata["release_date"] != nil {
-			releaseDateStr, ok := metadata["release_date"].(string)
-			log.Printf("[DEBUG] release_date for movie '%s': %v", title, releaseDateStr)
-			if ok {
-				releaseDate, err := time.Parse("2006-01-02", releaseDateStr)
-				if err == nil && releaseDate.After(time.Now()) {
-					log.Printf("[XTREAM] Skipping unreleased movie: %s (%s)", title, releaseDateStr)
-					continue
-				}
-			}
-		} else if metadata["release_date"] != nil {
-			log.Printf("[DEBUG] release_date for movie '%s': %v (filtering disabled)", title, metadata["release_date"])
-		}
-		
 		// If enabled, duplicate entries for each IPTV VOD provider source
 		dupEnabled := false
 		if h.duplicateVODPerProvider != nil {
@@ -977,7 +1099,7 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 		streams = append(streams, baseStream)
 		num++
 	}
-	
+
 	json.NewEncoder(w).Encode(streams)
 }
 
@@ -987,20 +1109,20 @@ func (h *XtreamHandler) getVODInfo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing vod_id", http.StatusBadRequest)
 		return
 	}
-	
+
 	tmdbID, err := strconv.ParseInt(vodID, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid vod_id", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Query movie by TMDB ID first, then fallback to database ID
 	var id int64
 	var title string
 	var year sql.NullInt64
 	var metadataJSON []byte
 	var imdbID sql.NullString
-	
+
 	query := `SELECT id, title, year, metadata, imdb_id FROM library_movies WHERE tmdb_id = $1`
 	err = h.db.QueryRow(query, tmdbID).Scan(&id, &title, &year, &metadataJSON, &imdbID)
 	if err != nil {
@@ -1012,10 +1134,10 @@ func (h *XtreamHandler) getVODInfo(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	
+
 	var metadata map[string]interface{}
 	json.Unmarshal(metadataJSON, &metadata)
-	
+
 	// Get IMDB ID from metadata if column is empty
 	imdbIDStr := imdbID.String
 	if imdbIDStr == "" {
@@ -1023,7 +1145,7 @@ func (h *XtreamHandler) getVODInfo(w http.ResponseWriter, r *http.Request) {
 			imdbIDStr = id
 		}
 	}
-	
+
 	// Build full image URLs
 	posterPath := ""
 	if pp, ok := metadata["poster_path"].(string); ok && pp != "" {
@@ -1033,12 +1155,12 @@ func (h *XtreamHandler) getVODInfo(w http.ResponseWriter, r *http.Request) {
 	if bp, ok := metadata["backdrop_path"].(string); ok && bp != "" {
 		backdropPath = "https://image.tmdb.org/t/p/original" + bp
 	}
-	
+
 	rating := float64(0)
 	if r, ok := metadata["vote_average"].(float64); ok {
 		rating = r
 	}
-	
+
 	runtime := 0
 	if rt, ok := metadata["runtime"].(float64); ok {
 		runtime = int(rt)
@@ -1046,7 +1168,7 @@ func (h *XtreamHandler) getVODInfo(w http.ResponseWriter, r *http.Request) {
 	hours := runtime / 60
 	minutes := runtime % 60
 	duration := fmt.Sprintf("%02d:%02d:00", hours, minutes)
-	
+
 	// Get genres as string
 	genresString := ""
 	if genres, ok := metadata["genres"].([]interface{}); ok {
@@ -1060,7 +1182,7 @@ func (h *XtreamHandler) getVODInfo(w http.ResponseWriter, r *http.Request) {
 		}
 		genresString = strings.Join(genreNames, ", ")
 	}
-	
+
 	// Get cast
 	castString := ""
 	if cast, ok := metadata["cast"].([]interface{}); ok {
@@ -1077,7 +1199,7 @@ func (h *XtreamHandler) getVODInfo(w http.ResponseWriter, r *http.Request) {
 		}
 		castString = strings.Join(castNames, ", ")
 	}
-	
+
 	// Get director
 	director := ""
 	if crew, ok := metadata["crew"].([]interface{}); ok {
@@ -1092,10 +1214,10 @@ func (h *XtreamHandler) getVODInfo(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	// Fetch YouTube trailer from TMDB
 	youtubeTrailer := h.getYouTubeTrailer(tmdbID, "movie")
-	
+
 	info := map[string]interface{}{
 		"info": map[string]interface{}{
 			"movie_image":     posterPath,
@@ -1126,7 +1248,7 @@ func (h *XtreamHandler) getVODInfo(w http.ResponseWriter, r *http.Request) {
 			"direct_source":       "",
 		},
 	}
-	
+
 	json.NewEncoder(w).Encode(info)
 }
 
@@ -1166,40 +1288,35 @@ func (h *XtreamHandler) getSeriesCategories(w http.ResponseWriter, r *http.Reque
 		{"category_id": "10768", "category_name": "War & Politics", "parent_id": 0},
 		{"category_id": "37", "category_name": "Western", "parent_id": 0},
 	}
-	
+
 	json.NewEncoder(w).Encode(categories)
 }
 
 func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 	// Get category_id filter from query params
 	categoryFilter := r.URL.Query().Get("category_id")
-	
-	// Get current settings
-	var onlyCached bool
-	if h.getSettings != nil {
-		if settings := h.getSettings(); settings != nil {
-			if settingsMap, ok := settings.(map[string]interface{}); ok {
-				if oc, ok := settingsMap["only_cached_streams"].(bool); ok {
-					onlyCached = oc
-				}
-			}
-		}
-	}
-	
+
+	filterSettings := h.currentFilterSettings()
+	hideUnavailable := h.hideUnavailable != nil && h.hideUnavailable()
+
 	// Query all series - using TMDB ID as series_id for proper playback routing
 	query := `
 		SELECT id, tmdb_id, title, year, metadata, COALESCE(EXTRACT(EPOCH FROM added_at), 0) as added_ts
 		FROM library_series
 		WHERE monitored = true
 	`
-	
-	// Apply "Only Cached Streams" filter (for series, check if any episodes are cached)
-	if onlyCached {
-		query += ` AND EXISTS (SELECT 1 FROM media_streams ms WHERE ms.series_id = id)`
+
+	if hideUnavailable {
+		query += seriesAvailableClause("library_series")
 	}
-	
+
+	// Apply "Only Cached Streams" filter (for series, check if any episodes are cached)
+	if filterSettings.OnlyCached {
+		query += ` AND EXISTS (SELECT 1 FROM media_streams ms WHERE ms.series_id = id AND COALESCE(ms.is_available, true) = true)`
+	}
+
 	query += ` ORDER BY id DESC`
-	
+
 	rows, err := h.db.Query(query)
 	if err != nil {
 		log.Printf("Error querying series: %v", err)
@@ -1207,45 +1324,50 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	
+
 	series := make([]map[string]interface{}, 0)
 	num := 1
-	
+
 	for rows.Next() {
 		var id, tmdbID int64
 		var title string
 		var year sql.NullInt64
 		var metadataJSON []byte
 		var addedTs float64
-		
+
 		if err := rows.Scan(&id, &tmdbID, &title, &year, &metadataJSON, &addedTs); err != nil {
 			continue
 		}
-		
+
 		var metadata map[string]interface{}
 		json.Unmarshal(metadataJSON, &metadata)
-		
+
+		if allowed, reason := services.SeriesAllowedByContentFilters(seriesFromXtreamRow(id, tmdbID, title, year, metadata), filterSettings.Content); !allowed {
+			log.Printf("[XTREAM] Skipping series %s: %s", title, reason)
+			continue
+		}
+
 		// Build full poster URL
 		posterPath := ""
 		if pp, ok := metadata["poster_path"].(string); ok && pp != "" {
 			posterPath = "https://image.tmdb.org/t/p/w500" + pp
 		}
-		
+
 		backdropPath := ""
 		if bp, ok := metadata["backdrop_path"].(string); ok && bp != "" {
 			backdropPath = "https://image.tmdb.org/t/p/original" + bp
 		}
-		
+
 		rating := float64(0)
 		if r, ok := metadata["vote_average"].(float64); ok {
 			rating = r
 		}
-		
+
 		plot := ""
 		if p, ok := metadata["overview"].(string); ok {
 			plot = p
 		}
-		
+
 		// TMDB TV genre name to ID mapping
 		tvGenreNameToID := map[string]string{
 			"Action & Adventure": "10759", "Animation": "16", "Comedy": "35",
@@ -1254,16 +1376,16 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 			"Sci-Fi & Fantasy": "10765", "Soap": "10766", "Talk": "10767",
 			"War & Politics": "10768", "Western": "37",
 		}
-		
+
 		// Get genre category IDs from metadata
 		// Start with "Popular", "Top Rated", "On The Air" so series appear in all these categories
-		categoryID := "88881" // Default to "Popular"
+		categoryID := "88881"                              // Default to "Popular"
 		categoryIDs := []string{"88881", "88882", "88883"} // Popular + Top Rated + On The Air
 		genreStr := ""
-		
+
 		if genres, ok := metadata["genres"].([]interface{}); ok && len(genres) > 0 {
 			genreNames := make([]string, 0, len(genres))
-			
+
 			for i, g := range genres {
 				// Try object format first: {"id": 27, "name": "Horror"}
 				if gm, ok := g.(map[string]interface{}); ok {
@@ -1290,7 +1412,7 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 			}
 			genreStr = strings.Join(genreNames, ", ")
 		}
-		
+
 		// Also check genre_ids array (some TMDB responses use this format)
 		if genreIDs, ok := metadata["genre_ids"].([]interface{}); ok && len(genreIDs) > 0 {
 			for i, gid := range genreIDs {
@@ -1311,14 +1433,14 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		
+
 		// IMPORTANT: Use TMDB ID as series_id for playback
 		// Include added and last_modified for app caching
 		addedInt := int64(addedTs)
 		if addedInt == 0 {
 			addedInt = time.Now().Unix() - 86400 // Default to 24h ago if not set
 		}
-		
+
 		s := map[string]interface{}{
 			"num":           num,
 			"series_id":     tmdbID,
@@ -1339,7 +1461,7 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 			"added":         addedInt,
 			"last_modified": addedInt,
 		}
-		
+
 		// Filter by category if specified
 		if categoryFilter != "" {
 			found := false
@@ -1370,7 +1492,9 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 					}
 					// clone base series map
 					entry := make(map[string]interface{}, len(s))
-					for k, v := range s { entry[k] = v }
+					for k, v := range s {
+						entry[k] = v
+					}
 					name := fmt.Sprintf("%s [%s]", title, provName)
 					entry["name"] = name
 					entry["title"] = name
@@ -1386,7 +1510,7 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 		series = append(series, s)
 		num++
 	}
-	
+
 	json.NewEncoder(w).Encode(series)
 }
 
@@ -1396,20 +1520,20 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing series_id", http.StatusBadRequest)
 		return
 	}
-	
+
 	tmdbID, err := strconv.ParseInt(seriesID, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid series_id", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Query series by TMDB ID first, then fallback to database ID
 	var id int64
 	var title string
 	var year sql.NullInt64
 	var metadataJSON []byte
 	var imdbID sql.NullString
-	
+
 	query := `SELECT id, title, year, metadata, imdb_id FROM library_series WHERE tmdb_id = $1`
 	err = h.db.QueryRow(query, tmdbID).Scan(&id, &title, &year, &metadataJSON, &imdbID)
 	if err != nil {
@@ -1421,10 +1545,10 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	
+
 	var metadata map[string]interface{}
 	json.Unmarshal(metadataJSON, &metadata)
-	
+
 	// Build full image URLs
 	posterPath := ""
 	if pp, ok := metadata["poster_path"].(string); ok && pp != "" {
@@ -1434,12 +1558,12 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 	if bp, ok := metadata["backdrop_path"].(string); ok && bp != "" {
 		backdropPath = "https://image.tmdb.org/t/p/original" + bp
 	}
-	
+
 	rating := float64(0)
 	if r, ok := metadata["vote_average"].(float64); ok {
 		rating = r
 	}
-	
+
 	// Get cast
 	castString := ""
 	if cast, ok := metadata["cast"].([]interface{}); ok {
@@ -1456,7 +1580,7 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 		}
 		castString = strings.Join(castNames, ", ")
 	}
-	
+
 	// Get genres
 	genresString := ""
 	if genres, ok := metadata["genres"].([]interface{}); ok {
@@ -1470,18 +1594,18 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 		}
 		genresString = strings.Join(genreNames, ", ")
 	}
-	
+
 	// Get IMDB ID string
 	imdbIDStr := imdbID.String
-	
+
 	// Get number of seasons from metadata, or fetch from TMDB
 	numberOfSeasons := 0
 	if ns, ok := metadata["number_of_seasons"].(float64); ok {
 		numberOfSeasons = int(ns)
 	}
-	
+
 	ctx := r.Context()
-	
+
 	// If number_of_seasons is not in metadata, fetch from TMDB API
 	if numberOfSeasons == 0 {
 		tmdbSeries, err := h.tmdb.GetSeries(ctx, int(tmdbID))
@@ -1507,16 +1631,27 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Fetched series %d from TMDB: %d seasons", tmdbID, numberOfSeasons)
 		}
 	}
-	
+
 	// Build a map of episode availability from the database if hideUnavailable is enabled
 	episodeAvailability := make(map[string]bool) // key: "season:episode" -> available
 	hideUnavailableEpisodes := h.hideUnavailable != nil && h.hideUnavailable()
+	seriesHasVODSources := metadataHasVODSources(metadata)
 	if hideUnavailableEpisodes {
 		availQuery := `
-			SELECT e.season_number, e.episode_number, e.available 
+			SELECT e.season_number, e.episode_number,
+			       (
+				       e.available = true
+				       OR EXISTS (
+					       SELECT 1 FROM media_streams ms
+					       WHERE ms.series_id = e.series_id
+					         AND ms.season = e.season_number
+					         AND ms.episode = e.episode_number
+					         AND COALESCE(ms.is_available, true) = true
+				       )
+			       ) AS available
 			FROM library_episodes e
 			JOIN library_series s ON e.series_id = s.id
-			WHERE s.tmdb_id = $1 AND e.last_checked IS NOT NULL
+			WHERE s.tmdb_id = $1
 		`
 		availRows, err := h.db.Query(availQuery, tmdbID)
 		if err == nil {
@@ -1531,10 +1666,10 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	seasons := make([]map[string]interface{}, 0)
 	episodes := make(map[string][]map[string]interface{})
-	
+
 	// Fetch seasons and episodes from TMDB API dynamically
 	for seasonNum := 1; seasonNum <= numberOfSeasons; seasonNum++ {
 		season, err := h.tmdb.GetSeason(ctx, int(tmdbID), seasonNum)
@@ -1542,11 +1677,11 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Error fetching season %d for series %d: %v", seasonNum, tmdbID, err)
 			continue
 		}
-		
+
 		// Build season info
 		seasonKey := fmt.Sprintf("%d", seasonNum)
 		episodeCount := 0
-		
+
 		// Process episodes for this season
 		for _, ep := range season.Episodes {
 			// Skip future episodes
@@ -1558,21 +1693,21 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 			} else {
 				continue // Skip episodes without air date
 			}
-			
+
 			// Skip unavailable episodes if hideUnavailable is enabled
 			if hideUnavailableEpisodes {
 				key := fmt.Sprintf("%d:%d", seasonNum, ep.EpisodeNumber)
-				if available, checked := episodeAvailability[key]; checked && !available {
-					continue // Episode was checked and has no streams
+				if available, checked := episodeAvailability[key]; !seriesHasVODSources && (!checked || !available) {
+					continue // Episode has no known playable source
 				}
 			}
-			
+
 			episodeCount++
-			
+
 			// Encode episode data for custom_sid: imdb_id:tmdb_id/season/X/episode/Y
 			customSid := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%d/season/%d/episode/%d",
 				imdbIDStr, tmdbID, seasonNum, ep.EpisodeNumber)))
-			
+
 			// Cache episode lookup info (like PHP's episode_lookup.json)
 			episodeIDStr := fmt.Sprintf("%d", ep.ID)
 			h.episodeMu.Lock()
@@ -1583,18 +1718,18 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 				IMDBID:   imdbIDStr,
 			}
 			h.episodeMu.Unlock()
-			
+
 			// Build episode image URL
 			episodeImage := backdropPath
 			if ep.StillPath != "" {
 				episodeImage = "https://image.tmdb.org/t/p/original" + ep.StillPath
 			}
-			
+
 			runtime := ep.Runtime
 			if runtime == 0 {
 				runtime = 45
 			}
-			
+
 			// Use TMDB episode ID as the id (like PHP version)
 			// Build multiple video sources from metadata.iptv_vod_sources if present
 			videos := []map[string]interface{}{}
@@ -1602,11 +1737,13 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 				for _, s := range sources {
 					if m, ok := s.(map[string]interface{}); ok {
 						title := "Source"
-						if n, ok := m["name"].(string); ok && n != "" { title = n }
+						if n, ok := m["name"].(string); ok && n != "" {
+							title = n
+						}
 						if u, ok := m["url"].(string); ok && u != "" {
 							videos = append(videos, map[string]interface{}{
-								"title":  title,
-								"url":    u,
+								"title":   title,
+								"url":     u,
 								"bitrate": 0,
 								"quality": title,
 							})
@@ -1628,7 +1765,7 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 					"tmdb_id":       fmt.Sprintf("%d", tmdbID),
 					"name":          ep.Name,
 					"air_date":      ep.AirDate,
-					"video":           videos,
+					"video":         videos,
 					"cover_big":     episodeImage,
 					"plot":          ep.Overview,
 					"movie_image":   episodeImage,
@@ -1636,10 +1773,10 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 					"duration":      fmt.Sprintf("%02d:%02d:00", runtime/60, runtime%60),
 				},
 			}
-			
+
 			episodes[seasonKey] = append(episodes[seasonKey], info)
 		}
-		
+
 		// Add season to seasons array
 		seasons = append(seasons, map[string]interface{}{
 			"air_date":      season.AirDate,
@@ -1653,10 +1790,10 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 			"cover_big":     posterPath,
 		})
 	}
-	
+
 	// Fetch YouTube trailer for series
 	youtubeTrailer := h.getYouTubeTrailer(tmdbID, "tv")
-	
+
 	result := map[string]interface{}{
 		"seasons": seasons,
 		"info": map[string]interface{}{
@@ -1677,10 +1814,10 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 		},
 		"episodes": episodes,
 	}
-	
+
 	// Save episode cache to disk (like PHP's episode_lookup.json)
 	go h.saveEpisodeCache()
-	
+
 	json.NewEncoder(w).Encode(result)
 }
 
@@ -1689,14 +1826,14 @@ func (h *XtreamHandler) getLiveCategories(w http.ResponseWriter, r *http.Request
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
 	}
-	
+
 	// Get unique categories from actual channel data
 	channelCategories := h.channelManager.GetCategories()
-	
+
 	// Build categories list dynamically from channels
 	categories := make([]map[string]interface{}, 0)
 	categoryMap := make(map[string]bool)
-	
+
 	for _, ch := range h.channelManager.GetAllChannels() {
 		catName := ch.Category
 		if catName == "" {
@@ -1707,14 +1844,14 @@ func (h *XtreamHandler) getLiveCategories(w http.ResponseWriter, r *http.Request
 		}
 		categoryMap[catName] = true
 	}
-	
+
 	// Sort and assign category IDs
 	sortedCats := make([]string, 0, len(categoryMap))
 	for cat := range categoryMap {
 		sortedCats = append(sortedCats, cat)
 	}
 	sort.Strings(sortedCats)
-	
+
 	for i, cat := range sortedCats {
 		categories = append(categories, map[string]interface{}{
 			"category_id":   fmt.Sprintf("%d", i+1),
@@ -1722,14 +1859,14 @@ func (h *XtreamHandler) getLiveCategories(w http.ResponseWriter, r *http.Request
 			"parent_id":     0,
 		})
 	}
-	
+
 	// If no categories found, use defaults
 	if len(categories) == 0 {
 		categories = []map[string]interface{}{
 			{"category_id": "1", "category_name": "Live TV", "parent_id": 0},
 		}
 	}
-	
+
 	_ = channelCategories // Use the variable
 	json.NewEncoder(w).Encode(categories)
 }
@@ -1737,14 +1874,14 @@ func (h *XtreamHandler) getLiveCategories(w http.ResponseWriter, r *http.Request
 func (h *XtreamHandler) getLiveStreams(w http.ResponseWriter, r *http.Request) {
 	// Get category_id filter from query params
 	categoryFilter := r.URL.Query().Get("category_id")
-	
+
 	if h.channelManager == nil {
 		json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
 	}
 
 	channels := h.channelManager.GetAllChannels()
-	
+
 	// Build dynamic category mapping (same logic as getLiveCategories)
 	categoryMap := make(map[string]string)
 	uniqueCats := make(map[string]bool)
@@ -1755,19 +1892,19 @@ func (h *XtreamHandler) getLiveStreams(w http.ResponseWriter, r *http.Request) {
 		}
 		uniqueCats[catName] = true
 	}
-	
+
 	sortedCats := make([]string, 0, len(uniqueCats))
 	for cat := range uniqueCats {
 		sortedCats = append(sortedCats, cat)
 	}
 	sort.Strings(sortedCats)
-	
+
 	for i, cat := range sortedCats {
 		categoryMap[cat] = fmt.Sprintf("%d", i+1)
 	}
-	
+
 	streams := make([]map[string]interface{}, 0, len(channels))
-	
+
 	for i, ch := range channels {
 		catName := ch.Category
 		if catName == "" {
@@ -1777,12 +1914,12 @@ func (h *XtreamHandler) getLiveStreams(w http.ResponseWriter, r *http.Request) {
 		if catID == "" {
 			catID = "1"
 		}
-		
+
 		// Filter by category if specified
 		if categoryFilter != "" && catID != categoryFilter {
 			continue
 		}
-		
+
 		streamID := i + 1
 		stream := map[string]interface{}{
 			"num":                 streamID,
@@ -1802,20 +1939,20 @@ func (h *XtreamHandler) getLiveStreams(w http.ResponseWriter, r *http.Request) {
 		}
 		streams = append(streams, stream)
 	}
-	
+
 	json.NewEncoder(w).Encode(streams)
 }
 
 func (h *XtreamHandler) handleXMLTV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/xml")
-	
+
 	// Get all channels
 	channels := h.channelManager.GetAllChannels()
 	channelList := make([]livetv.Channel, len(channels))
 	for i, ch := range channels {
 		channelList[i] = *ch
 	}
-	
+
 	// Generate XMLTV EPG data
 	xmltv, err := h.epgManager.GenerateXMLTV(channelList)
 	if err != nil {
@@ -1825,7 +1962,7 @@ func (h *XtreamHandler) handleXMLTV(w http.ResponseWriter, r *http.Request) {
 <tv generator-info-name="StreamArr">
 </tv>`
 	}
-	
+
 	w.Write([]byte(xmltv))
 }
 
@@ -1837,7 +1974,7 @@ func (h *XtreamHandler) handlePlay(w http.ResponseWriter, r *http.Request) {
 	seriesID := r.URL.Query().Get("series_id")
 	season := r.URL.Query().Get("season")
 	episode := r.URL.Query().Get("episode")
-	
+
 	if vodID != "" {
 		h.playMovie(w, r, vodID)
 	} else if seriesID != "" && season != "" && episode != "" {
@@ -1851,7 +1988,7 @@ func (h *XtreamHandler) handlePlay(w http.ResponseWriter, r *http.Request) {
 func (h *XtreamHandler) handleMoviePlay(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	movieID := vars["id"]
-	
+
 	log.Printf("Movie play request: id=%s", movieID)
 	h.playMovie(w, r, movieID)
 }
@@ -1862,9 +1999,9 @@ func (h *XtreamHandler) handleMoviePlayWithQuality(w http.ResponseWriter, r *htt
 	vars := mux.Vars(r)
 	movieID := vars["id"]
 	quality := strings.ToLower(vars["quality"])
-	
+
 	log.Printf("Movie play request with quality: id=%s, quality=%s", movieID, quality)
-	
+
 	// Map quality suffix to max resolution (integer height)
 	qualityMap := map[string]int{
 		"4k":    2160,
@@ -1873,7 +2010,7 @@ func (h *XtreamHandler) handleMoviePlayWithQuality(w http.ResponseWriter, r *htt
 		"720p":  720,
 		"480p":  480,
 	}
-	
+
 	if maxRes, ok := qualityMap[quality]; ok {
 		// Store original max resolution
 		originalMaxRes := h.cfg.MaxResolution
@@ -1891,20 +2028,20 @@ func (h *XtreamHandler) handleMoviePlayWithQuality(w http.ResponseWriter, r *htt
 func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	episodeID := vars["id"]
-	
+
 	log.Printf("Series play request: id=%s", episodeID)
-	
+
 	// First, check the episode cache (like PHP's episode_lookup.json)
 	h.episodeMu.RLock()
 	lookup, found := h.episodeCache[episodeID]
 	h.episodeMu.RUnlock()
-	
+
 	if found && lookup.IMDBID != "" {
 		log.Printf("Found episode in cache: IMDB %s S%02dE%02d", lookup.IMDBID, lookup.Season, lookup.Episode)
 		h.playEpisodeByIMDB(w, r, lookup.IMDBID, lookup.Season, lookup.Episode)
 		return
 	}
-	
+
 	// If found in cache but IMDB ID is empty, try to fetch it from TMDB
 	if found && lookup.SeriesID != "" {
 		log.Printf("Episode found in cache but missing IMDB ID, fetching from TMDB for series %s", lookup.SeriesID)
@@ -1919,7 +2056,7 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 				h.episodeCache[episodeID] = lookup
 				h.episodeMu.Unlock()
 				go h.saveEpisodeCache()
-				
+
 				h.playEpisodeByIMDB(w, r, externalIDs.IMDBID, lookup.Season, lookup.Episode)
 				return
 			} else if err != nil {
@@ -1927,7 +2064,7 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	}
-	
+
 	// Try to decode as base64 custom_sid (fallback)
 	decoded, err := base64.StdEncoding.DecodeString(episodeID)
 	if err != nil {
@@ -1937,12 +2074,12 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 			decoded, err = base64.StdEncoding.DecodeString(unescaped)
 		}
 	}
-	
+
 	if err == nil && len(decoded) > 0 {
 		// Format: imdb_id:tmdb_id/season/X/episode/Y
 		decodedStr := string(decoded)
 		log.Printf("Decoded episode data: %s", decodedStr)
-		
+
 		parts := strings.Split(decodedStr, "/")
 		if len(parts) >= 5 {
 			// Extract imdb_id from first part (format: imdb_id:tmdb_id)
@@ -1952,7 +2089,7 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 				imdbID := firstPart[:colonIdx]
 				seasonNum := 0
 				episodeNum := 0
-				
+
 				for i, p := range parts {
 					if p == "season" && i+1 < len(parts) {
 						seasonNum, _ = strconv.Atoi(parts[i+1])
@@ -1961,7 +2098,7 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 						episodeNum, _ = strconv.Atoi(parts[i+1])
 					}
 				}
-				
+
 				if imdbID != "" && seasonNum > 0 && episodeNum > 0 {
 					log.Printf("Playing episode from custom_sid: IMDB %s S%02dE%02d", imdbID, seasonNum, episodeNum)
 					h.playEpisodeByIMDB(w, r, imdbID, seasonNum, episodeNum)
@@ -1970,18 +2107,18 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	}
-	
+
 	// Fallback: Try to look up episode by TMDB episode ID in the database
 	// The episode ID might be the TMDB episode ID
 	tmdbEpisodeID, err := strconv.ParseInt(episodeID, 10, 64)
 	if err == nil && tmdbEpisodeID > 0 {
 		log.Printf("Trying to look up episode by TMDB ID: %d", tmdbEpisodeID)
-		
+
 		// Look up episode in database
 		var seriesTmdbID int64
 		var seasonNum, episodeNum int
 		var metadataJSON []byte
-		
+
 		query := `
 			SELECT s.tmdb_id, e.season_number, e.episode_number, s.metadata
 			FROM library_episodes e
@@ -1998,7 +2135,7 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 					imdbID = id
 				}
 			}
-			
+
 			// If not in metadata, fetch from TMDB
 			if imdbID == "" {
 				externalIDs, err := h.tmdb.GetSeriesExternalIDs(r.Context(), int(seriesTmdbID))
@@ -2006,10 +2143,10 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 					imdbID = externalIDs.IMDBID
 				}
 			}
-			
+
 			if imdbID != "" {
 				log.Printf("Found episode in DB: IMDB %s S%02dE%02d", imdbID, seasonNum, episodeNum)
-				
+
 				// Cache the lookup for future use
 				h.episodeMu.Lock()
 				h.episodeCache[episodeID] = EpisodeLookup{
@@ -2020,7 +2157,7 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 				}
 				h.episodeMu.Unlock()
 				go h.saveEpisodeCache()
-				
+
 				h.playEpisodeByIMDB(w, r, imdbID, seasonNum, episodeNum)
 				return
 			}
@@ -2028,7 +2165,7 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 			log.Printf("Episode not found in database: %v", err)
 		}
 	}
-	
+
 	log.Printf("Episode not found in cache, base64, or database: %s", episodeID)
 	http.Error(w, "Episode not found - please refresh series info", http.StatusNotFound)
 }
@@ -2037,21 +2174,21 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 func (h *XtreamHandler) playEpisodeByIMDB(w http.ResponseWriter, r *http.Request, imdbID string, seasonNum, episodeNum int) {
 	log.Printf("[PLAY] Episode request: IMDB %s S%02dE%02d from IP %s", imdbID, seasonNum, episodeNum, r.RemoteAddr)
 	startTime := time.Now()
-	
+
 	// Get stream from providers
 	log.Printf("[PLAY] Fetching streams for %s S%02dE%02d...", imdbID, seasonNum, episodeNum)
 	stream, err := h.multiProvider.GetBestStream(imdbID, &seasonNum, &episodeNum, h.cfg.MaxResolution)
 	elapsed := time.Since(startTime)
-	
+
 	if err != nil {
 		log.Printf("[PLAY] ❌ Failed to get stream after %.2fs: %v", elapsed.Seconds(), err)
 		http.Error(w, "Stream not available", http.StatusNotFound)
 		return
 	}
-	
+
 	// DEBUG: Log stream details
 	log.Printf("[PLAY-DEBUG] Stream details - InfoHash: '%s', URL: '%s', Name: '%s'", stream.InfoHash, stream.URL, stream.Name)
-	
+
 	// Extract infohash from URL if not present (TorrentsDB doesn't include it in response)
 	if stream.InfoHash == "" && strings.Contains(stream.URL, "/realdebrid/") {
 		// URL format: .../realdebrid/API_KEY/INFOHASH/...
@@ -2064,13 +2201,13 @@ func (h *XtreamHandler) playEpisodeByIMDB(w http.ResponseWriter, r *http.Request
 			}
 		}
 	}
-	
+
 	// DISABLED: RD direct API unreliable - Torrentio handles RD internally via resolve URL
 	// if stream.InfoHash != "" && h.rdClient != nil {
 	// 	log.Printf("[PLAY-RD] Attempting to get cached stream from Real-Debrid: %s", stream.InfoHash)
 	// 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	// 	defer cancel()
-	// 	
+	//
 	// 	rdURL, err := h.rdClient.GetStreamURL(ctx, stream.InfoHash)
 	// 	if err == nil && rdURL != "" {
 	// 		elapsed = time.Since(startTime)
@@ -2080,7 +2217,7 @@ func (h *XtreamHandler) playEpisodeByIMDB(w http.ResponseWriter, r *http.Request
 	// 	}
 	// 	log.Printf("[PLAY-RD] ⚠️ Failed to get RD stream URL: %v", err)
 	// }
-	
+
 	// Fallback: Resolve stream URL if needed (Stremio addon URLs)
 	if stream.URL != "" {
 		finalURL, err := h.resolveStremioURL(stream.URL)
@@ -2089,7 +2226,7 @@ func (h *XtreamHandler) playEpisodeByIMDB(w http.ResponseWriter, r *http.Request
 			http.Error(w, fmt.Sprintf("Stream resolution failed: %v", err), http.StatusBadGateway)
 			return
 		}
-		
+
 		elapsed = time.Since(startTime)
 		log.Printf("[PLAY] ✓ Redirecting to addon stream (%.2fs): %s", elapsed.Seconds(), finalURL)
 		http.Redirect(w, r, finalURL, http.StatusFound)
@@ -2103,26 +2240,26 @@ func (h *XtreamHandler) playEpisodeByIMDB(w http.ResponseWriter, r *http.Request
 func (h *XtreamHandler) handleLivePlay(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	streamID := vars["id"]
-	
+
 	log.Printf("Live play request: id=%s", streamID)
-	
+
 	id, err := strconv.Atoi(streamID)
 	if err != nil {
 		http.Error(w, "Invalid stream ID", http.StatusBadRequest)
 		return
 	}
-	
+
 	if h.channelManager == nil {
 		http.Error(w, "Live TV not available", http.StatusNotFound)
 		return
 	}
-	
+
 	channels := h.channelManager.GetAllChannels()
 	if id < 1 || id > len(channels) {
 		http.Error(w, "Channel not found", http.StatusNotFound)
 		return
 	}
-	
+
 	channel := channels[id-1]
 	if channel.StreamURL != "" {
 		http.Redirect(w, r, channel.StreamURL, http.StatusFound)
@@ -2135,7 +2272,7 @@ func (h *XtreamHandler) handleLivePlay(w http.ResponseWriter, r *http.Request) {
 func (h *XtreamHandler) handleDirectPlay(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	movieID := vars["id"]
-	
+
 	log.Printf("Direct play request: id=%s", movieID)
 	h.playMovie(w, r, movieID)
 }
@@ -2144,11 +2281,11 @@ func (h *XtreamHandler) playMovie(w http.ResponseWriter, r *http.Request, vodID 
 	log.Printf("[PLAY] Movie request: TMDB ID %s from IP %s", vodID, r.RemoteAddr)
 	startTime := time.Now()
 	tmdbID, _ := strconv.ParseInt(vodID, 10, 64)
-	
+
 	// Get IMDB ID from database by TMDB ID first - try both imdb_id column and metadata
 	var imdbID sql.NullString
 	var metadataJSON []byte
-	
+
 	query := `SELECT imdb_id, metadata FROM library_movies WHERE tmdb_id = $1`
 	err := h.db.QueryRow(query, tmdbID).Scan(&imdbID, &metadataJSON)
 	if err != nil {
@@ -2161,7 +2298,7 @@ func (h *XtreamHandler) playMovie(w http.ResponseWriter, r *http.Request, vodID 
 			return
 		}
 	}
-	
+
 	// If imdb_id column is empty, try to get from metadata JSON
 	if !imdbID.Valid || imdbID.String == "" {
 		var metadata map[string]interface{}
@@ -2172,25 +2309,25 @@ func (h *XtreamHandler) playMovie(w http.ResponseWriter, r *http.Request, vodID 
 			}
 		}
 	}
-	
+
 	if !imdbID.Valid || imdbID.String == "" {
 		log.Printf("[PLAY] ❌ IMDB ID not found for TMDB %d", tmdbID)
 		http.Error(w, "IMDB ID not found", http.StatusNotFound)
 		return
 	}
-	
+
 	log.Printf("[PLAY] Fetching streams for movie TMDB %d, IMDB %s...", tmdbID, imdbID.String)
-	
+
 	// Get stream from providers
 	stream, err := h.multiProvider.GetBestStream(imdbID.String, nil, nil, h.cfg.MaxResolution)
 	elapsed := time.Since(startTime)
-	
+
 	if err != nil {
 		log.Printf("[PLAY] ❌ Failed to get stream after %.2fs: %v", elapsed.Seconds(), err)
 		http.Error(w, "Stream not available", http.StatusNotFound)
 		return
 	}
-	
+
 	// Resolve stream URL from addon (Torrentio has built-in RD support)
 	if stream.URL != "" {
 		finalURL, err := h.resolveStremioURL(stream.URL)
@@ -2199,7 +2336,7 @@ func (h *XtreamHandler) playMovie(w http.ResponseWriter, r *http.Request, vodID 
 			http.Error(w, fmt.Sprintf("Stream resolution failed: %v", err), http.StatusBadGateway)
 			return
 		}
-		
+
 		elapsed = time.Since(startTime)
 		log.Printf("[PLAY] ✓ Redirecting to addon stream (%.2fs): %s", elapsed.Seconds(), finalURL)
 		http.Redirect(w, r, finalURL, http.StatusFound)
@@ -2213,11 +2350,11 @@ func (h *XtreamHandler) playEpisode(w http.ResponseWriter, r *http.Request, seri
 	tmdbID, _ := strconv.ParseInt(seriesID, 10, 64)
 	seasonNum, _ := strconv.Atoi(seasonStr)
 	episodeNum, _ := strconv.Atoi(episodeStr)
-	
+
 	// Get IMDB ID from database by TMDB ID first - try both imdb_id column and metadata
 	var imdbID sql.NullString
 	var metadataJSON []byte
-	
+
 	query := `SELECT imdb_id, metadata FROM library_series WHERE tmdb_id = $1`
 	err := h.db.QueryRow(query, tmdbID).Scan(&imdbID, &metadataJSON)
 	if err != nil {
@@ -2229,7 +2366,7 @@ func (h *XtreamHandler) playEpisode(w http.ResponseWriter, r *http.Request, seri
 			return
 		}
 	}
-	
+
 	// If imdb_id column is empty, try to get from metadata JSON
 	if !imdbID.Valid || imdbID.String == "" {
 		var metadata map[string]interface{}
@@ -2249,14 +2386,14 @@ func (h *XtreamHandler) playEpisode(w http.ResponseWriter, r *http.Request, seri
 			}
 		}
 	}
-	
+
 	if !imdbID.Valid || imdbID.String == "" {
 		http.Error(w, "IMDB ID not found", http.StatusNotFound)
 		return
 	}
-	
+
 	log.Printf("Playing series TMDB ID %d, IMDB ID %s, S%02dE%02d", tmdbID, imdbID.String, seasonNum, episodeNum)
-	
+
 	// Get stream from providers
 	stream, err := h.multiProvider.GetBestStream(imdbID.String, &seasonNum, &episodeNum, h.cfg.MaxResolution)
 	if err != nil {
@@ -2264,7 +2401,7 @@ func (h *XtreamHandler) playEpisode(w http.ResponseWriter, r *http.Request, seri
 		http.Error(w, "Stream not available", http.StatusNotFound)
 		return
 	}
-	
+
 	// Redirect to stream URL
 	if stream.URL != "" {
 		log.Printf("Redirecting to episode stream: %s", stream.URL)
@@ -2286,7 +2423,7 @@ func (h *XtreamHandler) handleGetPlaylist(w http.ResponseWriter, r *http.Request
 		host = fmt.Sprintf("%s:%d", h.cfg.Host, h.cfg.ServerPort)
 	}
 	serverURL := fmt.Sprintf("http://%s", host)
-	
+
 	username := r.URL.Query().Get("username")
 	password := r.URL.Query().Get("password")
 	if username == "" {
@@ -2301,40 +2438,33 @@ func (h *XtreamHandler) handleGetPlaylist(w http.ResponseWriter, r *http.Request
 
 	fmt.Fprintf(w, "#EXTM3U\n")
 
-	// Check if "Only Include Media with Cached Streams" setting is enabled
-	var onlyIncludeCached bool
-	var onlyReleasedContent bool
-	log.Printf("[XTREAM] handleGetPlaylist: Checking 'Only Include Media with Cached Streams' setting")
-	if h.getSettings != nil {
-		if settings := h.getSettings(); settings != nil {
-			if settingsMap, ok := settings.(map[string]interface{}); ok {
-				// Check for the setting - it might be named different variations
-				if oc, ok := settingsMap["only_cached_streams"].(bool); ok {
-					onlyIncludeCached = oc
-				} else if oc, ok := settingsMap["only_include_cached_streams"].(bool); ok {
-					onlyIncludeCached = oc
-				}
-				if orc, ok := settingsMap["only_released_content"].(bool); ok {
-					onlyReleasedContent = orc
-				}
-				log.Printf("[XTREAM] handleGetPlaylist: only_cached_streams=%v, only_released_content=%v", onlyIncludeCached, onlyReleasedContent)
-			}
-		}
-	}
+	filterSettings := h.currentFilterSettings()
+	onlyIncludeCached := filterSettings.OnlyCached
+	hideUnavailable := h.hideUnavailable != nil && h.hideUnavailable()
+	log.Printf("[XTREAM] handleGetPlaylist: only_cached_streams=%v hide_unavailable=%v min_year=%d min_runtime=%d include_adult=%v only_released=%v block_bollywood=%v",
+		onlyIncludeCached,
+		hideUnavailable,
+		filterSettings.Content.MinYear,
+		filterSettings.Content.MinRuntime,
+		filterSettings.Content.IncludeAdultVOD,
+		filterSettings.Content.OnlyReleasedContent,
+		filterSettings.Content.BlockBollywood,
+	)
 
 	// Add VOD streams (movies) based on cache setting
 	if onlyIncludeCached {
 		// ONLY show cached streams from Stream Cache Monitor
 		log.Printf("[XTREAM] handleGetPlaylist: Mode=CACHED_ONLY - showing only streams from Stream Cache Monitor")
-		
+
 		query := `
-			SELECT DISTINCT m.tmdb_id, m.title, m.year, m.metadata, ms.quality_score
+			SELECT DISTINCT m.id, m.tmdb_id, m.title, m.year, m.metadata, ms.quality_score
 			FROM media_streams ms
 			JOIN library_movies m ON m.id = ms.movie_id
 			WHERE ms.movie_id IS NOT NULL
+			  AND COALESCE(ms.is_available, true) = true
 			ORDER BY m.title
 		`
-		
+
 		movieRows, err := h.db.Query(query)
 		if err != nil {
 			log.Printf("[XTREAM] handleGetPlaylist: Error querying cached streams: %v", err)
@@ -2342,17 +2472,22 @@ func (h *XtreamHandler) handleGetPlaylist(w http.ResponseWriter, r *http.Request
 			defer movieRows.Close()
 			cachedCount := 0
 			for movieRows.Next() {
+				var id int64
 				var tmdbID int64
 				var title string
 				var year sql.NullInt64
 				var metadataJSON []byte
 				var qualityScore sql.NullInt64
-				if err := movieRows.Scan(&tmdbID, &title, &year, &metadataJSON, &qualityScore); err != nil {
+				if err := movieRows.Scan(&id, &tmdbID, &title, &year, &metadataJSON, &qualityScore); err != nil {
 					continue
 				}
 
 				var metadata map[string]interface{}
 				json.Unmarshal(metadataJSON, &metadata)
+				if allowed, reason := services.MovieAllowedByContentFilters(movieFromXtreamRow(id, tmdbID, title, year, metadata), filterSettings.Content); !allowed {
+					log.Printf("[XTREAM] handleGetPlaylist: skipping cached movie %s: %s", title, reason)
+					continue
+				}
 
 				logo := ""
 				if poster, ok := metadata["poster_path"].(string); ok && poster != "" {
@@ -2371,17 +2506,18 @@ func (h *XtreamHandler) handleGetPlaylist(w http.ResponseWriter, r *http.Request
 			}
 			log.Printf("[XTREAM] handleGetPlaylist: Added %d cached movie streams to playlist", cachedCount)
 		}
-		
+
 		// Add cached series streams only
 		log.Printf("[XTREAM] handleGetPlaylist: Adding cached series streams...")
 		seriesQuery := `
-			SELECT DISTINCT s.tmdb_id, s.title, s.year, s.metadata
+			SELECT DISTINCT s.id, s.tmdb_id, s.title, s.year, s.metadata
 			FROM media_streams ms
 			JOIN library_series s ON s.id = ms.series_id
 			WHERE ms.series_id IS NOT NULL
+			  AND COALESCE(ms.is_available, true) = true
 			ORDER BY s.title
 		`
-		
+
 		seriesRows, err := h.db.Query(seriesQuery)
 		if err != nil {
 			log.Printf("[XTREAM] handleGetPlaylist: Error querying cached series: %v", err)
@@ -2389,16 +2525,21 @@ func (h *XtreamHandler) handleGetPlaylist(w http.ResponseWriter, r *http.Request
 			defer seriesRows.Close()
 			seriesCachedCount := 0
 			for seriesRows.Next() {
+				var id int64
 				var tmdbID int64
 				var title string
 				var year sql.NullInt64
 				var metadataJSON []byte
-				if err := seriesRows.Scan(&tmdbID, &title, &year, &metadataJSON); err != nil {
+				if err := seriesRows.Scan(&id, &tmdbID, &title, &year, &metadataJSON); err != nil {
 					continue
 				}
 
 				var metadata map[string]interface{}
 				json.Unmarshal(metadataJSON, &metadata)
+				if allowed, reason := services.SeriesAllowedByContentFilters(seriesFromXtreamRow(id, tmdbID, title, year, metadata), filterSettings.Content); !allowed {
+					log.Printf("[XTREAM] handleGetPlaylist: skipping cached series %s: %s", title, reason)
+					continue
+				}
 
 				logo := ""
 				if poster, ok := metadata["poster_path"].(string); ok && poster != "" {
@@ -2420,33 +2561,22 @@ func (h *XtreamHandler) handleGetPlaylist(w http.ResponseWriter, r *http.Request
 	} else {
 		// Show FULL library regardless of cache status
 		log.Printf("[XTREAM] handleGetPlaylist: Mode=FULL_LIBRARY - showing all monitored library content")
-		
-		// Build query with optional release date filter
+
+		// Build query; release/year/runtime/adult/origin filters are applied
+		// through the shared content filter to avoid mismatched SQL/Go behavior.
 		query := `
-			SELECT m.tmdb_id, m.title, m.year, m.metadata
+			SELECT m.id, m.tmdb_id, m.title, m.year, m.metadata
 			FROM library_movies m
 			WHERE m.monitored = true`
-		
-		if onlyReleasedContent {
-			// Filter out movies with future release dates
-			// If no release_date in metadata, assume January 1st of the year
-			query += `
-			  AND (
-				(m.metadata->>'release_date' IS NOT NULL 
-				 AND m.metadata->>'release_date' != '' 
-				 AND (m.metadata->>'release_date')::date <= CURRENT_DATE)
-				OR 
-				(m.metadata->>'release_date' IS NULL AND m.year < EXTRACT(YEAR FROM CURRENT_DATE))
-				OR
-				(m.metadata->>'release_date' = '' AND m.year < EXTRACT(YEAR FROM CURRENT_DATE))
-			  )`
-			log.Printf("[XTREAM] handleGetPlaylist: Filtering unreleased content (only_released_content=true)")
+
+		if hideUnavailable {
+			query += movieAvailableClause("m")
 		}
-		
+
 		query += `
 			ORDER BY m.title
 		`
-		
+
 		movieRows, err := h.db.Query(query)
 		if err != nil {
 			log.Printf("[XTREAM] handleGetPlaylist: Error querying all movies: %v", err)
@@ -2454,16 +2584,21 @@ func (h *XtreamHandler) handleGetPlaylist(w http.ResponseWriter, r *http.Request
 			defer movieRows.Close()
 			totalCount := 0
 			for movieRows.Next() {
+				var id int64
 				var tmdbID int64
 				var title string
 				var year sql.NullInt64
 				var metadataJSON []byte
-				if err := movieRows.Scan(&tmdbID, &title, &year, &metadataJSON); err != nil {
+				if err := movieRows.Scan(&id, &tmdbID, &title, &year, &metadataJSON); err != nil {
 					continue
 				}
 
 				var metadata map[string]interface{}
 				json.Unmarshal(metadataJSON, &metadata)
+				if allowed, reason := services.MovieAllowedByContentFilters(movieFromXtreamRow(id, tmdbID, title, year, metadata), filterSettings.Content); !allowed {
+					log.Printf("[XTREAM] handleGetPlaylist: skipping movie %s: %s", title, reason)
+					continue
+				}
 
 				logo := ""
 				if poster, ok := metadata["poster_path"].(string); ok && poster != "" {
@@ -2482,16 +2617,22 @@ func (h *XtreamHandler) handleGetPlaylist(w http.ResponseWriter, r *http.Request
 			}
 			log.Printf("[XTREAM] handleGetPlaylist: Added %d movies from full library to playlist", totalCount)
 		}
-		
+
 		// Add all series from library
 		log.Printf("[XTREAM] handleGetPlaylist: Adding series from full library...")
 		seriesQuery := `
-			SELECT s.tmdb_id, s.title, s.year, s.metadata
+			SELECT s.id, s.tmdb_id, s.title, s.year, s.metadata
 			FROM library_series s
-			WHERE s.monitored = true
+			WHERE s.monitored = true`
+
+		if hideUnavailable {
+			seriesQuery += seriesAvailableClause("s")
+		}
+
+		seriesQuery += `
 			ORDER BY s.title
 		`
-		
+
 		seriesRows, err := h.db.Query(seriesQuery)
 		if err != nil {
 			log.Printf("[XTREAM] handleGetPlaylist: Error querying all series: %v", err)
@@ -2499,16 +2640,21 @@ func (h *XtreamHandler) handleGetPlaylist(w http.ResponseWriter, r *http.Request
 			defer seriesRows.Close()
 			seriesTotalCount := 0
 			for seriesRows.Next() {
+				var id int64
 				var tmdbID int64
 				var title string
 				var year sql.NullInt64
 				var metadataJSON []byte
-				if err := seriesRows.Scan(&tmdbID, &title, &year, &metadataJSON); err != nil {
+				if err := seriesRows.Scan(&id, &tmdbID, &title, &year, &metadataJSON); err != nil {
 					continue
 				}
 
 				var metadata map[string]interface{}
 				json.Unmarshal(metadataJSON, &metadata)
+				if allowed, reason := services.SeriesAllowedByContentFilters(seriesFromXtreamRow(id, tmdbID, title, year, metadata), filterSettings.Content); !allowed {
+					log.Printf("[XTREAM] handleGetPlaylist: skipping series %s: %s", title, reason)
+					continue
+				}
 
 				logo := ""
 				if poster, ok := metadata["poster_path"].(string); ok && poster != "" {

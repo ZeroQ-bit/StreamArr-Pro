@@ -22,6 +22,8 @@ type SettingsResponse struct {
 	// Playlist Settings
 	UserCreatePlaylist             bool   `json:"user_create_playlist"`
 	TotalPages                     int    `json:"total_pages"`
+	MinYear                        int    `json:"min_year"`
+	MinRuntime                     int    `json:"min_runtime"`
 	Language                       string `json:"language"`
 	MoviesOriginCountry            string `json:"movies_origin_country"`
 	SeriesOriginCountry            string `json:"series_origin_country"`
@@ -31,6 +33,7 @@ type SettingsResponse struct {
 	IPTVImportMode                 string `json:"iptv_import_mode"` // live_only | vod_only | both
 	DuplicateVODPerProvider        bool   `json:"duplicate_vod_per_provider"`
 	IPTVVODSyncIntervalHours       int    `json:"iptv_vod_sync_interval_hours"`
+	OnlyCachedStreams              bool   `json:"only_cached_streams"`
 	OnlyReleasedContent            bool   `json:"only_released_content"`
 	HideUnavailableContent         bool   `json:"hide_unavailable_content"`
 	AutoAddBestStreamsToRealDebrid bool   `json:"auto_add_best_streams_to_realdebrid"`

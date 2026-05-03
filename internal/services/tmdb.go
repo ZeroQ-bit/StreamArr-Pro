@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,16 +35,19 @@ func NewTMDBClient(apiKey string) *TMDBClient {
 
 // Movie API responses
 type tmdbMovie struct {
-	ID            int    `json:"id"`
-	Title         string `json:"title"`
-	OriginalTitle string `json:"original_title"`
-	OriginalLanguage string `json:"original_language"`
-	Overview      string `json:"overview"`
-	PosterPath    string `json:"poster_path"`
-	BackdropPath  string `json:"backdrop_path"`
-	ReleaseDate   string `json:"release_date"`
-	Runtime       int    `json:"runtime"`
-	Genres        []struct {
+	ID               int      `json:"id"`
+	Title            string   `json:"title"`
+	OriginalTitle    string   `json:"original_title"`
+	OriginalLanguage string   `json:"original_language"`
+	Overview         string   `json:"overview"`
+	PosterPath       string   `json:"poster_path"`
+	BackdropPath     string   `json:"backdrop_path"`
+	ReleaseDate      string   `json:"release_date"`
+	Runtime          int      `json:"runtime"`
+	Adult            bool     `json:"adult"`
+	OriginCountry    []string `json:"origin_country"`
+	GenreIDs         []int    `json:"genre_ids"`
+	Genres           []struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
 	} `json:"genres"`
@@ -56,6 +60,14 @@ type tmdbMovie struct {
 	Status              string                   `json:"status"`
 	IMDbID              string                   `json:"imdb_id"`
 	BelongsToCollection *tmdbBelongsToCollection `json:"belongs_to_collection"`
+}
+
+type DiscoverMovieFilters struct {
+	GenreID             *int
+	MinYear             int
+	MinRuntime          int
+	IncludeAdultVOD     bool
+	OnlyReleasedContent bool
 }
 
 // tmdbBelongsToCollection represents the collection a movie belongs to
@@ -85,18 +97,18 @@ type tmdbCollection struct {
 }
 
 type tmdbSeries struct {
-	ID              int    `json:"id"`
-	Name            string `json:"name"`
-	OriginalName    string `json:"original_name"`
-	OriginalLanguage string `json:"original_language"`
-	Overview        string `json:"overview"`
-	PosterPath      string `json:"poster_path"`
-	BackdropPath    string `json:"backdrop_path"`
-	FirstAirDate    string `json:"first_air_date"`
-	Status          string `json:"status"`
-	NumberOfSeasons int    `json:"number_of_seasons"`
-	OriginCountry   []string `json:"origin_country"`
-	Genres          []struct {
+	ID               int      `json:"id"`
+	Name             string   `json:"name"`
+	OriginalName     string   `json:"original_name"`
+	OriginalLanguage string   `json:"original_language"`
+	Overview         string   `json:"overview"`
+	PosterPath       string   `json:"poster_path"`
+	BackdropPath     string   `json:"backdrop_path"`
+	FirstAirDate     string   `json:"first_air_date"`
+	Status           string   `json:"status"`
+	NumberOfSeasons  int      `json:"number_of_seasons"`
+	OriginCountry    []string `json:"origin_country"`
+	Genres           []struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
 	} `json:"genres"`
@@ -263,7 +275,7 @@ func (c *TMDBClient) FetchCollectionsByIDRange(ctx context.Context, startID, end
 	if endID <= startID {
 		return nil, fmt.Errorf("endID must be greater than startID")
 	}
-	
+
 	// Limit range to prevent too many requests
 	maxRange := 500
 	if endID-startID > maxRange {
@@ -418,7 +430,7 @@ func (c *TMDBClient) GetVideos(ctx context.Context, mediaType string, tmdbID int
 	} else {
 		endpoint = fmt.Sprintf("%s/tv/%d/videos", tmdbBaseURL, tmdbID)
 	}
-	
+
 	params := url.Values{}
 	params.Set("api_key", c.apiKey)
 	params.Set("language", "en-US")
@@ -581,17 +593,38 @@ func (c *TMDBClient) SearchCollectionsPaged(ctx context.Context, query string, p
 
 // DiscoverMovies discovers movies with filters
 func (c *TMDBClient) DiscoverMovies(ctx context.Context, page int, year *int, genre *string) ([]*models.Movie, error) {
+	filters := DiscoverMovieFilters{}
+	if year != nil {
+		filters.MinYear = *year
+	}
+	if genre != nil {
+		if genreID, err := strconv.Atoi(*genre); err == nil {
+			filters.GenreID = &genreID
+		}
+	}
+	return c.DiscoverMoviesWithFilters(ctx, page, filters)
+}
+
+// DiscoverMoviesWithFilters discovers movies with application content filters.
+func (c *TMDBClient) DiscoverMoviesWithFilters(ctx context.Context, page int, filters DiscoverMovieFilters) ([]*models.Movie, error) {
 	endpoint := fmt.Sprintf("%s/discover/movie", tmdbBaseURL)
 	params := url.Values{}
 	params.Set("api_key", c.apiKey)
 	params.Set("page", fmt.Sprintf("%d", page))
 	params.Set("sort_by", "popularity.desc")
+	params.Set("include_adult", strconv.FormatBool(filters.IncludeAdultVOD))
 
-	if year != nil {
-		params.Set("year", fmt.Sprintf("%d", *year))
+	if filters.MinYear > 0 {
+		params.Set("primary_release_date.gte", fmt.Sprintf("%04d-01-01", filters.MinYear))
 	}
-	if genre != nil {
-		params.Set("with_genres", *genre)
+	if filters.MinRuntime > 0 {
+		params.Set("with_runtime.gte", fmt.Sprintf("%d", filters.MinRuntime))
+	}
+	if filters.OnlyReleasedContent {
+		params.Set("primary_release_date.lte", time.Now().Format("2006-01-02"))
+	}
+	if filters.GenreID != nil {
+		params.Set("with_genres", fmt.Sprintf("%d", *filters.GenreID))
 	}
 
 	data, err := c.makeRequest(ctx, endpoint, params)
@@ -607,8 +640,17 @@ func (c *TMDBClient) DiscoverMovies(ctx context.Context, page int, year *int, ge
 	}
 
 	movies := make([]*models.Movie, 0, len(result.Results))
+	contentFilters := ContentFilterOptions{
+		MinYear:             filters.MinYear,
+		MinRuntime:          filters.MinRuntime,
+		IncludeAdultVOD:     filters.IncludeAdultVOD,
+		OnlyReleasedContent: filters.OnlyReleasedContent,
+	}
 	for _, tmdbMovie := range result.Results {
-		movies = append(movies, c.convertMovie(&tmdbMovie))
+		movie := c.convertMovie(&tmdbMovie)
+		if allowed, _ := MovieAllowedByContentFilters(movie, contentFilters); allowed {
+			movies = append(movies, movie)
+		}
 	}
 
 	return movies, nil
@@ -686,15 +728,22 @@ func (c *TMDBClient) convertMovie(tm *tmdbMovie) *models.Movie {
 		Runtime:       tm.Runtime,
 		Genres:        genres,
 		Metadata: models.Metadata{
-			"vote_average": tm.VoteAverage,
-			"vote_count":   tm.VoteCount,
-			"status":       tm.Status,
-			"imdb_id":      tm.IMDbID,
+			"vote_average":      tm.VoteAverage,
+			"vote_count":        tm.VoteCount,
+			"status":            tm.Status,
+			"imdb_id":           tm.IMDbID,
+			"adult":             tm.Adult,
+			"genre_ids":         tm.GenreIDs,
+			"release_date":      tm.ReleaseDate,
+			"runtime":           tm.Runtime,
 			"original_language": tm.OriginalLanguage,
+			"origin_country":    tm.OriginCountry,
 			"production_countries": func() []string {
 				codes := make([]string, 0, len(tm.ProductionCountries))
 				for _, pc := range tm.ProductionCountries {
-					if pc.ISO3166_1 != "" { codes = append(codes, pc.ISO3166_1) }
+					if pc.ISO3166_1 != "" {
+						codes = append(codes, pc.ISO3166_1)
+					}
 				}
 				return codes
 			}(),
@@ -728,8 +777,8 @@ func (c *TMDBClient) convertSeries(ts *tmdbSeries) *models.Series {
 		Seasons:       ts.NumberOfSeasons,
 		Genres:        genres,
 		Metadata: models.Metadata{
-			"vote_average": ts.VoteAverage,
-			"vote_count":   ts.VoteCount,
+			"vote_average":      ts.VoteAverage,
+			"vote_count":        ts.VoteCount,
 			"original_language": ts.OriginalLanguage,
 			"origin_country":    ts.OriginCountry,
 		},
@@ -941,14 +990,14 @@ func (c *TMDBClient) GetPopular(ctx context.Context, mediaType string) ([]Trendi
 
 // DiscoverCollectionsParams holds parameters for collection discovery
 type DiscoverCollectionsParams struct {
-	SortBy       string  // e.g., "popularity.desc", "vote_average.desc", "release_date.desc"
-	Genre        *int    // Genre ID filter
-	MinVoteCount int     // Minimum vote count
-	MinVoteAvg   float64 // Minimum vote average
-	Country      string  // Origin country ISO code
-	Company      string  // Production company ID(s)
-	Year         *int    // Release year filter
-	ReleasedAfter string // Movies released after this date (YYYY-MM-DD)
+	SortBy        string  // e.g., "popularity.desc", "vote_average.desc", "release_date.desc"
+	Genre         *int    // Genre ID filter
+	MinVoteCount  int     // Minimum vote count
+	MinVoteAvg    float64 // Minimum vote average
+	Country       string  // Origin country ISO code
+	Company       string  // Production company ID(s)
+	Year          *int    // Release year filter
+	ReleasedAfter string  // Movies released after this date (YYYY-MM-DD)
 }
 
 // DiscoverCollections discovers collections by finding movies via /discover/movie
@@ -966,7 +1015,7 @@ func (c *TMDBClient) DiscoverCollections(ctx context.Context, params DiscoverCol
 
 	// First, collect all movie IDs from discover pages
 	movieIDs := make(map[int]bool)
-	
+
 	for page := 1; page <= maxPages; page++ {
 		endpoint := fmt.Sprintf("%s/discover/movie", tmdbBaseURL)
 		urlParams := url.Values{}
@@ -974,7 +1023,7 @@ func (c *TMDBClient) DiscoverCollections(ctx context.Context, params DiscoverCol
 		urlParams.Set("page", fmt.Sprintf("%d", page))
 		urlParams.Set("sort_by", params.SortBy)
 		urlParams.Set("vote_count.gte", fmt.Sprintf("%d", params.MinVoteCount))
-		
+
 		if params.MinVoteAvg > 0 {
 			urlParams.Set("vote_average.gte", fmt.Sprintf("%.1f", params.MinVoteAvg))
 		}
@@ -1000,7 +1049,7 @@ func (c *TMDBClient) DiscoverCollections(ctx context.Context, params DiscoverCol
 		}
 
 		var result struct {
-			Results    []struct {
+			Results []struct {
 				ID int `json:"id"`
 			} `json:"results"`
 			TotalPages int `json:"total_pages"`
@@ -1188,13 +1237,13 @@ func (c *TMDBClient) getCollectionsFromMovieIDs(ctx context.Context, movieIDs ma
 	type result struct {
 		collection *models.Collection
 	}
-	
+
 	results := make(chan result, len(movieIDs))
 	semaphore := make(chan struct{}, 20) // Increased concurrent requests
 
 	for movieID := range movieIDs {
 		go func(id int) {
-			semaphore <- struct{}{} // Acquire
+			semaphore <- struct{}{}        // Acquire
 			defer func() { <-semaphore }() // Release
 
 			_, collection, err := c.GetMovieWithCollection(ctx, id)

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Zerr0-C00L/StreamArr/internal/config"
 	"github.com/Zerr0-C00L/StreamArr/internal/database"
 	"github.com/Zerr0-C00L/StreamArr/internal/epg"
 	"github.com/Zerr0-C00L/StreamArr/internal/livetv"
@@ -76,6 +77,7 @@ type Handler struct {
 	streamService    interface{} // Will be *streams.StreamService if initialized
 	cacheScanner     *CacheScanner
 	plexExporter     *services.PlexExporter
+	runtimeConfig    *config.Config
 }
 
 func toProviderAddons(addons []settings.StremioAddon) []providers.StremioAddon {
@@ -143,6 +145,42 @@ func (h *Handler) refreshRuntimeClients(cfg *settings.Settings) {
 	}
 }
 
+func (h *Handler) refreshRuntimeConfig(cfg *settings.Settings) {
+	if h.runtimeConfig == nil || cfg == nil {
+		return
+	}
+
+	if cfg.TotalPages > 0 {
+		h.runtimeConfig.TotalPages = cfg.TotalPages
+	}
+	if cfg.MinYear > 0 {
+		h.runtimeConfig.MinYear = cfg.MinYear
+	}
+	if cfg.MinRuntime > 0 {
+		h.runtimeConfig.MinRuntime = cfg.MinRuntime
+	}
+	if cfg.Language != "" {
+		h.runtimeConfig.Language = cfg.Language
+	}
+	if cfg.SeriesOriginCountry != "" {
+		h.runtimeConfig.SeriesOriginCountry = cfg.SeriesOriginCountry
+	}
+	if cfg.MoviesOriginCountry != "" {
+		h.runtimeConfig.MoviesOriginCountry = cfg.MoviesOriginCountry
+	}
+	if cfg.AutoCacheIntervalHours > 0 {
+		h.runtimeConfig.AutoCacheIntervalHours = cfg.AutoCacheIntervalHours
+	}
+
+	h.runtimeConfig.UserCreatePlaylist = cfg.UserCreatePlaylist
+	h.runtimeConfig.IncludeAdultVOD = cfg.IncludeAdultVOD
+	h.runtimeConfig.EnableQualityVariants = cfg.EnableQualityVariants
+	h.runtimeConfig.ShowFullStreamName = cfg.ShowFullStreamName
+	h.runtimeConfig.OnlyCachedStreams = cfg.OnlyCachedStreams
+	h.runtimeConfig.OnlyReleasedContent = cfg.OnlyReleasedContent
+	h.runtimeConfig.BlockBollywood = cfg.BlockBollywood
+}
+
 func NewHandler(
 	movieStore *database.MovieStore,
 	seriesStore *database.SeriesStore,
@@ -186,6 +224,7 @@ func NewHandlerWithComponents(
 	streamService interface{},
 	cacheScanner *CacheScanner,
 	plexExporter *services.PlexExporter,
+	runtimeConfig *config.Config,
 ) *Handler {
 	return &Handler{
 		movieStore:       movieStore,
@@ -207,6 +246,7 @@ func NewHandlerWithComponents(
 		streamService:    streamService,
 		cacheScanner:     cacheScanner,
 		plexExporter:     plexExporter,
+		runtimeConfig:    runtimeConfig,
 	}
 }
 
@@ -1695,6 +1735,233 @@ func (h *Handler) CleanupBollywoodLibrary(w http.ResponseWriter, r *http.Request
 	})
 }
 
+type cleanupCandidate struct {
+	ID     int64  `json:"id"`
+	TMDBID int    `json:"tmdb_id"`
+	Title  string `json:"title"`
+	Year   int    `json:"year,omitempty"`
+	Reason string `json:"reason"`
+}
+
+type cleanupPlan struct {
+	Movies        []cleanupCandidate `json:"movies"`
+	Series        []cleanupCandidate `json:"series"`
+	MovieReasons  map[string]int     `json:"movie_reasons"`
+	SeriesReasons map[string]int     `json:"series_reasons"`
+}
+
+func cleanupFilterOptions(st *settings.Settings) services.ContentFilterOptions {
+	if st == nil {
+		return services.ContentFilterOptions{}
+	}
+	return services.ContentFilterOptions{
+		MinYear:             st.MinYear,
+		MinRuntime:          st.MinRuntime,
+		IncludeAdultVOD:     st.IncludeAdultVOD,
+		OnlyReleasedContent: st.OnlyReleasedContent,
+		BlockBollywood:      st.BlockBollywood,
+	}
+}
+
+func queryBool(r *http.Request, key string) bool {
+	value := strings.TrimSpace(strings.ToLower(r.URL.Query().Get(key)))
+	return value == "1" || value == "true" || value == "yes" || value == "y"
+}
+
+func hasVODSources(metadata models.Metadata) bool {
+	if metadata == nil {
+		return false
+	}
+
+	switch sources := metadata["iptv_vod_sources"].(type) {
+	case []interface{}:
+		return len(sources) > 0
+	case []map[string]interface{}:
+		return len(sources) > 0
+	}
+	return false
+}
+
+func (h *Handler) movieHasPlayableSource(ctx context.Context, movie *models.Movie) bool {
+	if movie == nil {
+		return false
+	}
+	if movie.Available || hasVODSources(movie.Metadata) {
+		return true
+	}
+
+	var exists bool
+	err := h.movieStore.GetDB().QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM media_streams
+			WHERE movie_id = $1
+			  AND COALESCE(is_available, true) = true
+		)
+	`, movie.ID).Scan(&exists)
+	return err == nil && exists
+}
+
+func (h *Handler) seriesHasPlayableSource(ctx context.Context, series *models.Series) bool {
+	if series == nil {
+		return false
+	}
+	if hasVODSources(series.Metadata) {
+		return true
+	}
+
+	var exists bool
+	err := h.seriesStore.GetDB().QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM media_streams
+			WHERE series_id = $1
+			  AND COALESCE(is_available, true) = true
+		)
+	`, series.ID).Scan(&exists)
+	return err == nil && exists
+}
+
+func addCleanupSample(samples []cleanupCandidate, candidate cleanupCandidate) []cleanupCandidate {
+	if len(samples) >= 25 {
+		return samples
+	}
+	return append(samples, candidate)
+}
+
+func cleanupPlanResponse(plan cleanupPlan, dryRun bool, includeUnavailable bool, moviesDeleted int, seriesDeleted int) map[string]interface{} {
+	movieSamples := make([]cleanupCandidate, 0, 25)
+	for _, candidate := range plan.Movies {
+		movieSamples = addCleanupSample(movieSamples, candidate)
+	}
+
+	seriesSamples := make([]cleanupCandidate, 0, 25)
+	for _, candidate := range plan.Series {
+		seriesSamples = addCleanupSample(seriesSamples, candidate)
+	}
+
+	return map[string]interface{}{
+		"success":             true,
+		"dry_run":             dryRun,
+		"include_unavailable": includeUnavailable,
+		"movies_matched":      len(plan.Movies),
+		"series_matched":      len(plan.Series),
+		"movies_deleted":      moviesDeleted,
+		"series_deleted":      seriesDeleted,
+		"movie_reasons":       plan.MovieReasons,
+		"series_reasons":      plan.SeriesReasons,
+		"movie_samples":       movieSamples,
+		"series_samples":      seriesSamples,
+	}
+}
+
+// CleanupFilteredLibrary previews or deletes library media that violates the current content filters.
+func (h *Handler) CleanupFilteredLibrary(w http.ResponseWriter, r *http.Request) {
+	if h.settingsManager == nil {
+		respondError(w, http.StatusServiceUnavailable, "settings manager not initialized")
+		return
+	}
+	if h.movieStore == nil || h.seriesStore == nil {
+		respondError(w, http.StatusServiceUnavailable, "library stores not initialized")
+		return
+	}
+
+	ctx := r.Context()
+	st := h.settingsManager.Get()
+	opts := cleanupFilterOptions(st)
+	includeUnavailable := queryBool(r, "include_unavailable")
+	dryRun := !queryBool(r, "delete")
+
+	plan := cleanupPlan{
+		MovieReasons:  make(map[string]int),
+		SeriesReasons: make(map[string]int),
+	}
+
+	limit := 500
+	for offset := 0; ; offset += limit {
+		movies, err := h.movieStore.List(ctx, offset, limit, nil)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list movies: %v", err))
+			return
+		}
+		if len(movies) == 0 {
+			break
+		}
+
+		for _, movie := range movies {
+			allowed, reason := services.MovieAllowedByContentFilters(movie, opts)
+			if allowed && includeUnavailable && !h.movieHasPlayableSource(ctx, movie) {
+				allowed = false
+				reason = "no streams"
+			}
+			if allowed {
+				continue
+			}
+			candidate := cleanupCandidate{
+				ID:     movie.ID,
+				TMDBID: movie.TMDBID,
+				Title:  movie.Title,
+				Year:   services.MovieReleaseYear(movie),
+				Reason: reason,
+			}
+			plan.Movies = append(plan.Movies, candidate)
+			plan.MovieReasons[reason]++
+		}
+	}
+
+	for offset := 0; ; offset += limit {
+		seriesList, err := h.seriesStore.List(ctx, offset, limit, nil)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list series: %v", err))
+			return
+		}
+		if len(seriesList) == 0 {
+			break
+		}
+
+		for _, series := range seriesList {
+			allowed, reason := services.SeriesAllowedByContentFilters(series, opts)
+			if allowed && includeUnavailable && !h.seriesHasPlayableSource(ctx, series) {
+				allowed = false
+				reason = "no streams"
+			}
+			if allowed {
+				continue
+			}
+			candidate := cleanupCandidate{
+				ID:     series.ID,
+				TMDBID: series.TMDBID,
+				Title:  series.Title,
+				Year:   services.SeriesReleaseYear(series),
+				Reason: reason,
+			}
+			plan.Series = append(plan.Series, candidate)
+			plan.SeriesReasons[reason]++
+		}
+	}
+
+	moviesDeleted := 0
+	seriesDeleted := 0
+	if !dryRun {
+		for _, candidate := range plan.Movies {
+			if err := h.movieStore.Delete(ctx, candidate.ID); err != nil {
+				log.Printf("[Cleanup] Failed to delete movie %d (%s): %v", candidate.ID, candidate.Title, err)
+				continue
+			}
+			moviesDeleted++
+		}
+		for _, candidate := range plan.Series {
+			if err := h.seriesStore.Delete(ctx, candidate.ID); err != nil {
+				log.Printf("[Cleanup] Failed to delete series %d (%s): %v", candidate.ID, candidate.Title, err)
+				continue
+			}
+			seriesDeleted++
+		}
+	}
+
+	respondJSON(w, http.StatusOK, cleanupPlanResponse(plan, dryRun, includeUnavailable, moviesDeleted, seriesDeleted))
+}
+
 // GetSeriesEpisodes handles GET /api/series/{id}/episodes
 func (h *Handler) GetSeriesEpisodes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -2534,7 +2801,17 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		h.refreshRuntimeConfig(&newSettings)
 		h.refreshRuntimeClients(&newSettings)
+
+		if oldSettings.BlockBollywood != newSettings.BlockBollywood {
+			if newSettings.BlockBollywood {
+				log.Printf("[Settings] ✅ Playlist/import filter enabled: India-origin media will be blocked")
+			} else {
+				log.Printf("[Settings] ℹ️ Playlist/import filter disabled: India-origin media can be included")
+			}
+			log.Printf("[Settings] 📺 Regenerate playlists and run Bollywood cleanup to remove existing blocked items")
+		}
 
 		if h.cacheScanner != nil && !oldSettings.AutoAddBestStreamsToRealDebrid && newSettings.AutoAddBestStreamsToRealDebrid {
 			go func() {
